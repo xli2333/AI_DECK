@@ -1,0 +1,5 @@
+{
+  "name": "Strategy.AI Deck Builder v2",
+  "description": "An AI-powered presentation generator that transforms documents into high-fidelity strategic slide decks (McKinsey, BCG, Bain styles).",
+  "requestFramePermissions": []
+}
