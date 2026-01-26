@@ -221,6 +221,99 @@ export const extractCustomStyle = async (
 };
 
 
+// --- HELPER: Fetch Local Prompt File ---
+const fetchLocalPrompt = async (filePath: string): Promise<string> => {
+    try {
+        // --- PATH MAPPING LOGIC (Robustness for BCG, McKinsey, Bain) ---
+        let finalPath = filePath;
+        
+        // 1. Normalize slashes first
+        finalPath = finalPath.replace(/\\/g, '/');
+
+        // 2. Robust Prefix Handling (Regex for Precision)
+        
+        // BCG Logic
+        if (/^BCG Prompts/i.test(finalPath)) {
+             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
+        } else if (/^BCG Prompt/i.test(finalPath)) {
+             finalPath = finalPath.replace(/^BCG Prompt/i, 'Prompts/BCG Prompts');
+        }
+
+        // McKinsey Logic
+        else if (/^McKinsey Prompts/i.test(finalPath)) {
+             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
+        } else if (/^McKinsey Prompt/i.test(finalPath)) {
+             finalPath = finalPath.replace(/^McKinsey Prompt/i, 'Prompts/McKinsey Prompts');
+        }
+
+        // Bain Logic
+        else if (/^Bain Prompts/i.test(finalPath)) {
+             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
+        } else if (/^Bain Prompt/i.test(finalPath)) {
+             finalPath = finalPath.replace(/^Bain Prompt/i, 'Prompts/Bain Prompts');
+        }
+
+        // Internet Style Logic
+        else if (/^Internet Prompts/i.test(finalPath)) {
+             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
+        }
+
+        // --- SPECIAL CASE: Bain Index Path Redirection ---
+        // Bain index often points to "Prompts/Data Charts/..." missing the "Bain Prompts" subfolder.
+        const bainCategories = ['Data Charts', 'Conceptual Layouts', 'Text and Structure'];
+        for (const cat of bainCategories) {
+            if (finalPath.startsWith(`Prompts/${cat}`)) {
+                finalPath = finalPath.replace(`Prompts/${cat}`, `Prompts/Bain Prompts/${cat}`);
+                break;
+            }
+        }
+
+        // --- SPECIAL CASE: Internet Index Path Redirection ---
+        // Internet index uses relative paths starting with Chinese category names
+        const internetCategories = [
+            '对比与关系图解', '封面与目录结构', '流程计划与执行', 
+            '数据看板与图表', '战略与商业模型', '组织与人员介绍'
+        ];
+        for (const cat of internetCategories) {
+            // Case 1: Starts with category directly (from Index)
+            if (finalPath.startsWith(cat)) {
+                finalPath = `Prompts/Internet Prompts/${finalPath}`;
+                break;
+            }
+            // Case 2: Starts with Prompts/Category (User typo?)
+            if (finalPath.startsWith(`Prompts/${cat}`)) {
+                finalPath = finalPath.replace(`Prompts/${cat}`, `Prompts/Internet Prompts/${cat}`);
+                break;
+            }
+        }
+
+        // 3. Normalize slashes again (in case of replacements)
+        finalPath = finalPath.replace(/\\/g, '/');
+
+        console.log(`[Gemini] Requesting prompt file: ${finalPath} (Original: ${filePath})`);
+        
+        const response = await fetch('/api/read-file', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ filePath: finalPath })
+        });
+        
+        if (!response.ok) {
+            const errText = await response.text();
+            console.error(`[Gemini] Backend Error (${response.status}): ${errText}`);
+            // THROW ERROR to make it visible in the UI
+            throw new Error(`Failed to load Layout File: ${filePath}. Status: ${response.status}. Ensure backend is running (npm run dev:all).`);
+        }
+        
+        const data = await response.json();
+        return data.content || "";
+    } catch (e) {
+        console.error(`[Gemini] Network/System Error reading prompt: ${filePath}`, e);
+        // Re-throw to ensure the process stops and alerts the user
+        throw e;
+    }
+};
+
 // --- 1. GENERATE OUTLINE (GEMINI 3 PRO - BRAIN) ---
 export const generateOutline = async (
     input: AnalysisInput, 
@@ -231,6 +324,33 @@ export const generateOutline = async (
     validateAnalysisInput(input);
     const client = getClient(apiKey);
     const { outlinePrompt } = getSystemPrompts(style, customPrompts);
+
+    // DYNAMIC INSTRUCTION LOADING (BCG, McKinsey, Bain)
+    let dynamicContext = "";
+    let indexFile = "";
+    
+    if (style === 'bcg') indexFile = 'Prompts/BCG Prompts/BCG_Instruction_Index.md';
+    else if (style === 'mckinsey') indexFile = 'Prompts/McKinsey Prompts/McKinsey_Prompt_Index.md';
+    else if (style === 'bain') indexFile = 'Prompts/Bain Prompts/Bain_Instruction_Index.md';
+    else if (style === 'internet') indexFile = 'Prompts/Internet Prompts/Internet_Prompts_Index.md';
+
+    if (indexFile) {
+        const indexContent = await fetchLocalPrompt(indexFile);
+        if (indexContent) {
+            dynamicContext = `
+            # ${style.toUpperCase()} LAYOUT INDEX (MANDATORY REFERENCE)
+            You are a ${style.toUpperCase()} Engagement Manager. You MUST select a specific Layout File for EVERY slide you generate.
+            Use the following index to find the best matching layout for the content:
+            
+            ${indexContent}
+            
+            # REQUIREMENT:
+            In your JSON output, for every slide, you MUST add a field "layoutFilePath".
+            The value must be the full relative path based on the index (e.g., "Prompts/${style} Prompts/...").
+            If you are unsure, pick the closest fit from the "General" or "Structure" sections.
+            `;
+        }
+    }
 
     // CRITICAL: We structure the prompt to make the User Context the PRIMARY DRIVER.
     // The "input.text" (User Purpose) is injected here as a high-level constraint.
@@ -245,11 +365,14 @@ export const generateOutline = async (
     Ignore any generic template structures if they conflict with the User Input above. The User Input is the "Boss".
     
     ${outlinePrompt}
+
+    ${dynamicContext}
     
     # TASK
     1. Deeply analyze the provided Input Data & Files.
     2. Extract the strategic narrative that aligns with the User Mandate.
     3. Create a logical, persuasive storyboard (5-10 slides) in ${style.toUpperCase()} style.
+    ${indexFile ? "4. CRITICAL: Select a 'layoutFilePath' for every slide from the provided Index." : ""}
     `;
 
     const response: GenerateContentResponse = await callWithRetry(
@@ -274,7 +397,8 @@ export const generateOutline = async (
         title: item.title,
         executiveSummary: item.executiveSummary,
         suggestedSlideType: item.suggestedSlideType,
-        keyPoints: sanitizeStringArray(item.keyPoints)
+        keyPoints: sanitizeStringArray(item.keyPoints),
+        layoutFilePath: item.layoutFilePath // Capture the dynamically selected layout path
     }));
 };
 
@@ -290,6 +414,28 @@ export const generateSlideContent = async (
 ): Promise<SlideData> => {
     const client = getClient(apiKey);
     let { constructionPrompt } = getSystemPrompts(style, customPrompts);
+
+    // --- NEW: DYNAMIC LAYOUT LOADING ---
+    if (outlineItem.layoutFilePath) {
+        const specificLayoutInstructions = await fetchLocalPrompt(outlineItem.layoutFilePath);
+        if (specificLayoutInstructions) {
+            console.log(`[Gemini] Loaded specific layout for slide: ${outlineItem.layoutFilePath}`);
+            // We append the specific instructions to the core prompt.
+            // The specific instructions usually contain detailed "Visual Specification" rules.
+            constructionPrompt += `
+            
+            # SPECIFIC LAYOUT INSTRUCTIONS (OVERRIDE DEFAULT):
+            The user has selected a SPECIFIC LAYOUT for this slide. You MUST follow these rules exactly:
+            
+            ${specificLayoutInstructions}
+            
+            # MANDATE:
+            1. Use the "Action Title" format defined above if applicable.
+            2. Structure the "visualSpecification.fullImagePrompt" to match the description in the layout file.
+            3. Adopt the layout structure (columns, matrices) described.
+            `;
+        }
+    }
 
     // INJECT USER INSTRUCTIONS INTO SYSTEM PROMPT (HIGH PRIORITY)
     if (globalInstructions && globalInstructions.trim().length > 0) {
@@ -307,6 +453,50 @@ export const generateSlideContent = async (
     
     const prompt = `
     ${constructionPrompt}
+
+    # ADVANCED LAYOUT ENGINE (MANDATORY)
+    You are now acting as a World-Class Layout Designer.
+    Instead of just listing content, you must spatially arrange it on a 16:9 canvas (100% width x 100% height).
+    
+    # CRITICAL: POPULATE THE "layoutElements" ARRAY
+    You MUST populate the "layoutElements" array in the JSON response.
+    
+    ## Layout Rules:
+    1. **Diversity**: Do not use the same layout twice in a row. Use Split (50/50), Quadrant (2x2), Three-Column, Overlay, or Asymmetrical layouts.
+    2. **Precision**: Use "x", "y", "width", "height" (0-100 percentage) to position elements.
+       - Top-left is 0,0. Bottom-right is 100,100.
+       - Ensure elements do not overlap unintentionally.
+       - Leave space for margins (5%).
+    3. **Background Awareness**: The slide has a background image. Place text/charts in clear areas (usually the white/content areas).
+    4. **Element Types**:
+       - "title": Main headline (usually top).
+       - "subtitle": Kicker/Subtitle (below title).
+       - "text": Body text, bullets.
+       - "chart": Data visualization (Content = Detailed description for generator).
+       - "image": Illustrations (Content = Prompt for generator).
+    
+    ## JSON Output Schema (Extended):
+    {
+      "slideType": "string",
+      "actionTitle": "string",
+      "subtitle": "string",
+      "visualSpecification": { ... },
+      "bodyContent": [ ... ],
+      "footer": { ... },
+      "layoutElements": [
+        {
+          "id": "unique_id_1",
+          "type": "text" | "title" | "subtitle" | "image" | "chart",
+          "content": "Text content OR Image/Chart Prompt",
+          "position": { "x": number, "y": number, "width": number, "height": number },
+          "style": { 
+             "fontSize": number, // Scale 10-100 (10=small, 100=huge)
+             "textAlign": "left" | "center" | "right",
+             "color": "#HEX" 
+          }
+        }
+      ]
+    }
 
     # CURRENT TASK
     Draft Slide: "${outlineItem.title}"
@@ -360,6 +550,8 @@ export const generateSlideContent = async (
             source: data.footer?.source || "Internal Analysis",
             disclaimer: data.footer?.disclaimer || "Confidential"
         },
+        layoutElements: data.layoutElements || [], // Capture the new layout elements
+        layoutFilePath: outlineItem.layoutFilePath, // Pass through the layout path
         dataPoints: sanitizeStringArray(data.dataPoints),
         status: 'generating_visual'
     };
@@ -372,9 +564,10 @@ export const generateSlideVisual = async (
     prompt: string, 
     style: ConsultingStyle, 
     apiKey: string,
-    resolution: '1K' | '4K' = '1K',
+    resolution: '1K' | '4K' = '4K', // DEFAULT TO 4K FOR CHINESE TEXT CLARITY
     globalInstructions?: string,
-    customPrompts?: { core: string, visual: string }
+    customPrompts?: { core: string, visual: string },
+    referenceImageBase64?: string // <--- NEW OPTIONAL ARGUMENT
 ): Promise<string> => {
     const client = getClient(apiKey);
     const { imagePrompt } = getSystemPrompts(style, customPrompts);
@@ -396,6 +589,18 @@ export const generateSlideVisual = async (
         `;
     }
     
+    // REFERENCE IMAGE HANDLING
+    if (referenceImageBase64) {
+        finalPrompt += `
+        # REFERENCE IMAGE PROVIDED (VISUAL ANCHOR):
+        The user has provided a reference image.
+        - **Usage**: Treat this image as the PRIMARY visual source.
+        - If it's a chart/diagram: Mimic its structure but use the data provided below.
+        - If it's a photo/background: Use it as the dominant visual element.
+        - **Integration**: Blend this reference seamlessly with the consulting style defined above.
+        `;
+    }
+
     finalPrompt += `
     # SLIDE CONTEXT (CONTENT TO RENDER):
     **Action Title:** ${slideContext.title}
@@ -412,13 +617,25 @@ export const generateSlideVisual = async (
     - **TEXT CLARITY:** Render a **MAXIMUM FIDELITY**, **VECTOR-STYLE SHARPNESS** presentation slide. Text must be simulated but look CRISP.
     - **NO ARTIFACTS:** No blur, no jpeg compression, no hallucinations.
     `;
+    
+    const parts = prepareParts(input, finalPrompt);
+    
+    // Append reference image if exists
+    if (referenceImageBase64) {
+        // Insert it right after input files but before the text prompt
+        // prepareParts puts files first, then text. We want it with the files.
+        // Simple append to the beginning works too as long as it's an image part.
+        parts.unshift({ 
+             inlineData: { mimeType: 'image/png', data: referenceImageBase64.split(',')[1] } 
+        });
+    }
 
     const response: GenerateContentResponse = await callWithRetry(
         () => withTimeout(
             client.models.generateContent({
                 model: 'gemini-3-pro-image-preview', // LOCKED: Nano Banana Pro
                 // UPGRADE: Use prepareParts to attach the raw files + the prompt
-                contents: { parts: prepareParts(input, finalPrompt) },
+                contents: { parts },
                 config: {
                     imageConfig: {
                          aspectRatio: '16:9',
@@ -426,7 +643,7 @@ export const generateSlideVisual = async (
                     }
                 }
             }),
-            60000, `Generate Slide Visual (${resolution})` // 60s timeout for high quality
+            120000, `Generate Slide Visual (${resolution})` // Increased timeout to 120s for 4K
         ),
         1, `Generate Slide Visual (${resolution})`
     );
@@ -455,6 +672,30 @@ export const refineOutline = async (
     const client = getClient(apiKey);
     const { outlineRefinePrompt } = getSystemPrompts(style, customPrompts);
 
+    // DYNAMIC INSTRUCTION LOADING (BCG, McKinsey, Bain)
+    let dynamicContext = "";
+    let indexFile = "";
+    
+    if (style === 'bcg') indexFile = 'Prompts/BCG Prompts/BCG_Instruction_Index.md';
+    else if (style === 'mckinsey') indexFile = 'Prompts/McKinsey Prompts/McKinsey_Prompt_Index.md';
+    else if (style === 'bain') indexFile = 'Prompts/Bain Prompts/Bain_Instruction_Index.md';
+    else if (style === 'internet') indexFile = 'Prompts/Internet Prompts/Internet_Prompts_Index.md';
+
+    if (indexFile) {
+        const indexContent = await fetchLocalPrompt(indexFile);
+        if (indexContent) {
+            dynamicContext = `
+            # ${style.toUpperCase()} LAYOUT INDEX (MANDATORY REFERENCE)
+            When adding or modifying slides, you MUST select a specific Layout File for the new/modified slide.
+            
+            ${indexContent}
+            
+            # REQUIREMENT:
+            In your JSON output, ensure every slide (especially new ones) has a "layoutFilePath".
+            `;
+        }
+    }
+
     const historyText = history.length > 0 
         ? history.map((h, i) => `Step ${i+1}: ${h}`).join('\n')
         : "No previous modifications.";
@@ -462,8 +703,10 @@ export const refineOutline = async (
     const prompt = `
     ${outlineRefinePrompt}
     
+    ${dynamicContext}
+
     # CURRENT OUTLINE:
-    ${JSON.stringify(currentOutline.map(o => ({ title: o.title, summary: o.executiveSummary })))} 
+    ${JSON.stringify(currentOutline.map(o => ({ title: o.title, summary: o.executiveSummary, layoutFilePath: o.layoutFilePath })))} 
 
     # MODIFICATION HISTORY (CONTEXT):
     We are in a linear refinement session. The user has previously asked:
@@ -490,7 +733,8 @@ export const refineOutline = async (
         title: item.title,
         executiveSummary: item.executiveSummary,
         suggestedSlideType: item.suggestedSlideType || "Text Slide",
-        keyPoints: sanitizeStringArray(item.keyPoints)
+        keyPoints: sanitizeStringArray(item.keyPoints),
+        layoutFilePath: item.layoutFilePath || currentOutline[idx]?.layoutFilePath // Preserve or update layout
     }));
 };
 
@@ -553,10 +797,11 @@ export const regenerateFinalSlide = async (
     instruction: string, 
     history: string[],
     style: ConsultingStyle, 
-    apiKey: string
+    apiKey: string,
+    customPrompts?: { core: string, visual: string }
 ): Promise<SlideData> => {
     const client = getClient(apiKey);
-    let { constructionPrompt } = getSystemPrompts(style);
+    let { constructionPrompt } = getSystemPrompts(style, customPrompts);
 
     const historyText = history.length > 0 
         ? history.map((h, i) => `Step ${i+1}: ${h}`).join('\n')
@@ -661,41 +906,72 @@ export const upscaleSlideImage = async (base64Image: string, prompt: string, sty
 };
 
 // --- 8. MODIFY SLIDE IMAGE (EDIT) ---
-export const modifySlideImage = async (base64Image: string, instruction: string, style: ConsultingStyle, apiKey: string): Promise<string> => {
+export const modifySlideImage = async (
+    base64Image: string, 
+    instruction: string, 
+    style: ConsultingStyle, 
+    apiKey: string,
+    referenceImageBase64?: string // <--- NEW OPTIONAL ARGUMENT
+): Promise<string> => {
     const client = getClient(apiKey);
     
-    // CRITICAL FIX: DO NOT load getSystemPrompts(style) here.
-    // Loading the system "creation" prompt pollutes the context and causes the model to "redraw" the slide 
-    // (often re-adding elements you wanted to remove) instead of "editing" it.
-    
-    const finalPrompt = `
+    let finalPrompt = `
     # ROLE: Expert Image Retoucher & Editor
     # TASK: Edit the provided presentation slide image strictly according to the user instruction.
     # INSTRUCTION: "${instruction}"
     
+    # CRITICAL PRIORITY: TEXT & STRUCTURE INTEGRITY
+    1. **NO DISTORTION**: Existing text, numbers, and charts must remain **SHARP** and **READABLE**. Do not blur or warp them.
+    2. **4K OUTPUT**: You are generating a high-resolution 4K image. Details must be crisp.
+    3. **MINIMAL INTERVENTION**: Only change what is asked. Freeze the rest of the pixels.
+    `;
+
+    // Dynamic prompt addition for reference image
+    if (referenceImageBase64) {
+        finalPrompt += `
+        # REFERENCE IMAGE PROVIDED:
+        The user has uploaded a second image (Reference Material).
+        - If the instruction is "replace background", use this reference image as the new background canvas, overlaying existing text/charts on top.
+        - If the instruction is "insert image" or "replace logo", use this reference image as the source object.
+        - **Integrate it naturally** into the scene.
+        `;
+    }
+    
+    finalPrompt += `
     # CONSTRAINTS:
     1. DO NOT regenerate the slide concept. 
     2. RETAIN the original layout, text, charts, and data exactly as they are, unless the instruction specifically asks to change them.
-    3. If asked to remove an element (e.g. logo, text, footer), fill the gap seamlessly with the background color (White #FFFFFF).
+    3. If asked to remove an element (e.g. logo, text, footer), fill the gap seamlessly with the surrounding background.
     4. Perform a pixel-perfect edit. High fidelity. 
     `;
+
+    // Construct Parts
+    const parts: any[] = [
+        { inlineData: { mimeType: 'image/png', data: base64Image.split(',')[1] } },
+        { text: finalPrompt }
+    ];
+
+    // Append reference image if exists
+    if (referenceImageBase64) {
+        parts.splice(1, 0, { // Insert before text
+             inlineData: { mimeType: 'image/png', data: referenceImageBase64.split(',')[1] } 
+        });
+    }
 
     // To use image input for editing, we pass it in contents
     const response: GenerateContentResponse = await callWithRetry(
         () => withTimeout(
             client.models.generateContent({
                 model: 'gemini-3-pro-image-preview', // Edit supported model
-                contents: {
-                    parts: [
-                        { inlineData: { mimeType: 'image/png', data: base64Image.split(',')[1] } },
-                        { text: finalPrompt }
-                    ]
-                },
+                contents: { parts },
                 config: {
-                    imageConfig: { aspectRatio: '16:9' } // Note: imageSize might be restricted in edit mode depending on API
+                    imageConfig: { 
+                        aspectRatio: '16:9',
+                        imageSize: '4K' // FORCE 4K
+                    } 
                 }
             }),
-            60000, "Modify Slide Image"
+            90000, "Modify Slide Image" // Increased timeout for 4K
         ),
         1, "Modify Slide Image"
     );

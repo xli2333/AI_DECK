@@ -15,8 +15,9 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
   const getColors = () => {
       switch (style) {
           case 'bcg': return { text: '#00291C', accent: '#4ecb61', border: '#00291C' };
-          case 'bain': return { text: '#333333', accent: '#CB2026', border: '#CB2026' };
-          default: return { text: '#051C2C', accent: '#163E93', border: '#051C2C' }; // McKinsey
+      case 'bain': return { text: '#CB2026', accent: '#CB2026', border: '#CB2026' };
+      case 'internet': return { text: '#0052D9', accent: '#0052D9', border: '#0052D9' };
+      default: return { text: '#051C2C', accent: '#051C2C', border: '#051C2C' };
       }
   };
   const colors = getColors();
@@ -27,7 +28,8 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
         <div className="w-full aspect-[16/9] relative group shadow-2xl bg-white border border-gray-200 overflow-hidden">
             {/* 4K Badge */}
             {slide.isHighRes && (
-                <div className="absolute top-0 left-0 bg-[#051C2C] text-white text-[10px] font-bold px-2 py-1 rounded-br z-10 shadow-md flex items-center gap-1">
+                <div className="absolute top-0 left-0 text-white text-[10px] font-bold px-2 py-1 rounded-br z-10 shadow-md flex items-center gap-1"
+                     style={{ backgroundColor: colors.text }}>
                     <Monitor className="w-3 h-3" />
                     4K ULTRA HD
                 </div>
@@ -36,7 +38,7 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
             {/* Upscaling Overlay */}
             {slide.status === 'upscaling' && (
                 <div className="absolute inset-0 bg-black/60 z-20 flex flex-col items-center justify-center backdrop-blur-sm animate-in fade-in">
-                     <Sparkles className="w-12 h-12 text-[#4ecb61] animate-spin mb-4" />
+                     <Sparkles className="w-12 h-12 mb-4 animate-spin" style={{ color: colors.accent }} />
                      <h3 className="text-white font-bold text-xl font-serif">Upscaling to 4K...</h3>
                      <p className="text-gray-300 text-xs uppercase tracking-widest mt-2">Enhancing Typography & Vectors</p>
                 </div>
@@ -76,14 +78,14 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                <div className="flex items-center gap-3 mb-6">
                   <div className="relative">
                       <div className="w-12 h-12 border-2 border-gray-100 rounded-full"></div>
-                      <div className="absolute inset-0 border-2 border-t-[#051C2C] border-r-[#051C2C] rounded-full animate-spin"></div>
-                      <FileText className="absolute inset-0 m-auto w-5 h-5 text-[#051C2C]" />
+                      <div className="absolute inset-0 border-2 rounded-full animate-spin" style={{ borderTopColor: colors.text, borderRightColor: colors.text }}></div>
+                      <FileText className="absolute inset-0 m-auto w-5 h-5" style={{ color: colors.text }} />
                   </div>
                </div>
-               <h3 className="text-2xl font-serif font-bold text-[#051C2C] mb-2">Structural Analysis</h3>
+               <h3 className="text-2xl font-serif font-bold mb-2" style={{ color: colors.text }}>Structural Analysis</h3>
                <div className="flex flex-col gap-2 w-64">
                   <div className="h-1 bg-gray-100 overflow-hidden w-full rounded-full">
-                      <div className="h-full bg-[#051C2C] animate-[translateX_1.5s_ease-in-out_infinite] w-1/2 rounded-full"></div>
+                      <div className="h-full animate-[translateX_1.5s_ease-in-out_infinite] w-1/2 rounded-full" style={{ backgroundColor: colors.text }}></div>
                   </div>
                   <p className="text-[10px] text-center font-bold uppercase tracking-widest text-gray-400">
                       {slide.currentStep || "Synthesizing Logic & Data"}

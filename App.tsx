@@ -14,9 +14,11 @@ import {
 } from './services/geminiService';
 import { extractImagesFromPdf } from './services/pdfService';
 import SlideView from './components/SlideView';
+import RemasterTool from './components/RemasterTool';
 import { jsPDF } from "jspdf";
+
 import { 
-  Upload, FileText, ChevronRight, Play, Layout, Download, Wand2, CheckCircle, Loader2, File, ArrowRight, Trash2, RefreshCw, Briefcase, MessageSquare, Send, Check, X, Sparkles, CornerDownLeft, Edit3, Layers, Clock, Palette, Key, Monitor, Paintbrush, Sliders, Image as ImageIcon, AlertTriangle, Command, Target, PauseCircle, PlayCircle, RotateCcw, History, Pause, Coffee, AlertCircle, PenTool
+  Upload, FileText, ChevronRight, Play, Layout, Download, Wand2, CheckCircle, Loader2, File, ArrowRight, Trash2, RefreshCw, Briefcase, MessageSquare, Send, Check, X, Sparkles, CornerDownLeft, Edit3, Layers, Clock, Palette, Key, Monitor, Paintbrush, Sliders, Image as ImageIcon, AlertTriangle, Command, Target, PauseCircle, PlayCircle, RotateCcw, History, Pause, Coffee, AlertCircle, PenTool, GraduationCap
 } from 'lucide-react';
 
 type AnalysisSubTask = {
@@ -27,8 +29,8 @@ type AnalysisSubTask = {
 
 const App: React.FC = () => {
   // --- State ---
-  const [view, setView] = useState<'landing' | 'style-selection' | 'analyzing' | 'workspace'>('landing');
-  
+  const [view, setView] = useState<'landing' | 'style-selection' | 'analyzing' | 'workspace' | 'remaster'>('landing');
+
   const [apiKey, setApiKey] = useState('');
   const [inputMode, setInputMode] = useState<'text' | 'file'>('file');
   const [textContent, setTextContent] = useState('');
@@ -75,6 +77,7 @@ const App: React.FC = () => {
   const [globalRefineInput, setGlobalRefineInput] = useState('');
   const [slideRefineInput, setSlideRefineInput] = useState('');
   const [pauseInstruction, setPauseInstruction] = useState(''); // New: Input for pause adjustments
+  const [visualRefineImage, setVisualRefineImage] = useState<{ base64: string, mimeType: string } | null>(null); // NEW: Reference Image for Edit
   
   const [isRefining, setIsRefining] = useState(false);
   const [isRefiningSlide, setIsRefiningSlide] = useState(false);
@@ -180,65 +183,66 @@ const App: React.FC = () => {
       ));
   };
 
-  const handleRetrySlide = async () => {
-      const currentSlide = slides[currentSlideIdx];
-      // Logic: If bodyContent is empty, retry whole slide. If bodyContent exists but no image, retry visual.
-      
-      const needsFullRegen = !currentSlide.bodyContent || currentSlide.bodyContent.length === 0;
-
-      // Prepare input for regeneration
-      const input: AnalysisInput = {};
-      if (filesData.length > 0) input.filesData = filesData.map(f => ({ mimeType: f.mimeType, base64: f.base64 }));
-      if (deckPurpose.trim()) input.text = `PURPOSE: ${deckPurpose}\n\n`;
-
-      if (needsFullRegen) {
-           // Treat as a fresh refinement but without new instructions
-           setIsRefiningSlide(true);
-           setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'generating_text', currentStep: 'Retrying Analysis...' } : s));
-           
-           try {
-              const history = slideHistoryMap[currentSlide.id] || [];
-              const updatedSlidePending = await regenerateFinalSlide(input, currentSlide, "Retry generation with same parameters.", history, consultingStyle, apiKey, customStylePrompts);
+      const handleRetrySlide = async () => {
+          const currentSlide = slides[currentSlideIdx];
+          // Logic: If bodyContent is empty, retry whole slide. If bodyContent exists but no image, retry visual.
+          
+          const needsFullRegen = !currentSlide.bodyContent || currentSlide.bodyContent.length === 0;
+  
+          // Prepare input for regeneration
+          const input: AnalysisInput = {};
+          if (filesData.length > 0) input.filesData = filesData.map(f => ({ mimeType: f.mimeType, base64: f.base64 }));
+          if (deckPurpose.trim()) input.text = `PURPOSE: ${deckPurpose}\n\n`;
+  
+          if (needsFullRegen) {
+               // Treat as a fresh refinement but without new instructions
+               setIsRefiningSlide(true);
+               setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'generating_text', currentStep: 'Retrying Analysis...' } : s));
+               
+               try {
+                  const history = slideHistoryMap[currentSlide.id] || [];
+                  const updatedSlidePending = await regenerateFinalSlide(input, currentSlide, "Retry generation with same parameters.", history, consultingStyle, apiKey, customStylePrompts);
+                  
+                  setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, ...updatedSlidePending, status: 'generating_visual', currentStep: 'Retrying Visuals...' } : s));
+                  
+                  // Construct Context for Visual
+                  const slideContext = {
+                      title: updatedSlidePending.actionTitle,
+                      subtitle: updatedSlidePending.subtitle || "",
+                      keyPoints: updatedSlidePending.bodyContent
+                  };
+  
+                  const visual = await generateSlideVisual(input, slideContext, updatedSlidePending.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '4K', undefined, customStylePrompts);
+  
+                  setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true } : s));
+               } catch (e) {
+                  alert("Retry failed: " + (e as Error).message);
+                  setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'error', subtitle: 'Retry Failed' } : s));
+               } finally {
+                  setIsRefiningSlide(false);
+               }
+          } else {
+              // Retry only visual
+              setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'generating_visual', currentStep: 'Retrying Visuals...' } : s));
+              try {
+                  // Construct Context
+                  const slideContext = {
+                      title: currentSlide.actionTitle,
+                      subtitle: currentSlide.subtitle || "",
+                      keyPoints: currentSlide.bodyContent
+                  };
+  
+                  const visual = await generateSlideVisual(input, slideContext, currentSlide.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '4K', undefined, customStylePrompts);
+  
+                  setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true } : s));
+                          } catch(e) {
+                              setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'error', subtitle: 'Visual Retry Failed' } : s));
+                          }
+                      }
+                  };
               
-              setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, ...updatedSlidePending, status: 'generating_visual', currentStep: 'Retrying Visuals...' } : s));
-              
-              // Construct Context for Visual
-              const slideContext = {
-                  title: updatedSlidePending.actionTitle,
-                  subtitle: updatedSlidePending.subtitle || "",
-                  keyPoints: updatedSlidePending.bodyContent
-              };
-
-              const visual = await generateSlideVisual(input, slideContext, updatedSlidePending.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '1K', undefined, customStylePrompts);
-              setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, imageBase64: visual, status: 'complete', currentStep: undefined } : s));
-           } catch (e) {
-              alert("Retry failed: " + (e as Error).message);
-              setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'error', subtitle: 'Retry Failed' } : s));
-           } finally {
-              setIsRefiningSlide(false);
-           }
-      } else {
-          // Retry only visual
-          setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'generating_visual', currentStep: 'Retrying Visuals...' } : s));
-          try {
-              // Construct Context
-              const slideContext = {
-                  title: currentSlide.actionTitle,
-                  subtitle: currentSlide.subtitle || "",
-                  keyPoints: currentSlide.bodyContent
-              };
-
-              const visual = await generateSlideVisual(input, slideContext, currentSlide.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '1K', undefined, customStylePrompts);
-              setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, imageBase64: visual, status: 'complete', currentStep: undefined } : s));
-          } catch(e) {
-              setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'error', subtitle: 'Visual Retry Failed' } : s));
-          }
-      }
-  };
-
-  // --- Handlers ---
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
+                // --- Handlers ---
+                const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {    const files = e.target.files;
     if (!files || files.length === 0) return;
     if (!isValidApiKey(apiKey)) {
         alert("Please enter a valid Google Gemini API Key (starts with AIza) first.");
@@ -569,9 +573,23 @@ const App: React.FC = () => {
             keyPoints: updatedSlidePending.bodyContent
         };
 
-        const visual = await generateSlideVisual(input, slideContext, lightPrompt, consultingStyle, apiKey, currentSlide.isHighRes ? '4K' : '1K', undefined, customStylePrompts);
+        // FORCE 4K REGENERATION
+        // Pass the reference image if available
+        const visual = await generateSlideVisual(
+            input, 
+            slideContext, 
+            lightPrompt, 
+            consultingStyle, 
+            apiKey, 
+            '4K', 
+            undefined, 
+            customStylePrompts,
+            visualRefineImage?.base64 // <--- PASS REF IMAGE
+        );
         
-        updateSlideStatus(currentSlideIdx, { imageBase64: visual, status: 'complete', currentStep: undefined });
+        updateSlideStatus(currentSlideIdx, { imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true });
+        // Optional: Clear image after use?
+        // setVisualRefineImage(null); 
 
     } catch (e) {
          alert("Failed to regenerate slide: " + (e as Error).message);
@@ -594,12 +612,18 @@ const App: React.FC = () => {
           const currentSlide = slides[currentSlideIdx];
           updateSlideStatus(currentSlideIdx, { status: 'generating_visual', currentStep: 'Performing Visual Edit...' });
 
-          const newImage = await modifySlideImage(currentSlide.imageBase64!, slideRefineInput, consultingStyle, apiKey);
+          const newImage = await modifySlideImage(
+              currentSlide.imageBase64!, 
+              slideRefineInput, 
+              consultingStyle, 
+              apiKey,
+              visualRefineImage?.base64 // <--- PASS REF IMAGE
+          );
           
           updateSlideStatus(currentSlideIdx, { 
               imageBase64: newImage, 
               status: 'complete', 
-              isHighRes: false,
+              isHighRes: true, // 4K Confirmed
               currentStep: undefined
           });
           setSlideRefineInput('');
@@ -726,9 +750,10 @@ const App: React.FC = () => {
                   keyPoints: slideContent.bodyContent
               };
 
-              const visual = await generateSlideVisual(input, slideContext, lightPrompt, consultingStyle, apiKey, '1K', instructions, customStylePrompts); 
+              // Standard Nanobanana Pro
+              const visual = await generateSlideVisual(input, slideContext, lightPrompt, consultingStyle, apiKey, '4K', instructions, customStylePrompts); 
               
-              updateSlideStatus(i, { imageBase64: visual, status: 'complete', currentStep: undefined });
+              updateSlideStatus(i, { imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true });
           } catch (e) {
               console.error("Slide Generation Error:", e);
               // Mark slide as error but continue loop
@@ -798,6 +823,21 @@ const App: React.FC = () => {
       setIsPausing(true); 
   };
 
+  const handleRefineImageUpload = (files: FileList | null) => {
+      if (!files || files.length === 0) return;
+      const file = files[0];
+      const reader = new FileReader();
+      reader.onload = (e) => {
+          if (e.target?.result) {
+              setVisualRefineImage({
+                  base64: e.target.result as string,
+                  mimeType: file.type
+              });
+          }
+      };
+      reader.readAsDataURL(file);
+  };
+
   const handleGlobalRegeneration = async () => {
       setShowRegenerateModal(false);
       
@@ -836,7 +876,7 @@ const App: React.FC = () => {
                       imageBase64: newImage, 
                       status: 'complete', 
                       currentStep: undefined,
-                      isHighRes: false // Reset resolution status as it's a new edit
+                      isHighRes: true // 4K Confirmed
                   });
               }
           }
@@ -903,12 +943,16 @@ const App: React.FC = () => {
 
   // --- Views ---
 
+  // Removed old Fudan view condition
+
   if (view === 'landing') {
     return (
         <div className="flex flex-col items-center justify-center min-h-screen bg-white relative overflow-hidden selection:bg-[#163E93] selection:text-white">
         <div className="absolute top-0 left-0 w-full h-1.5 bg-[#051C2C]"></div>
         <div className="absolute bottom-0 right-0 w-1/3 h-full bg-[#F8FAFC] -z-10 skew-x-12 transform origin-bottom-right opacity-60"></div>
-        <div className="max-w-6xl w-full p-8 relative z-10 flex flex-col items-center text-center">
+        
+        <div className="max-w-6xl w-full p-8 relative z-10 flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-700">
+            {/* STANDARD BRANDING */}
             <h1 className="text-7xl md:text-9xl font-bold text-[#051C2C] mb-8 font-serif tracking-tighter leading-none">
                 Strategy<span className="text-[#163E93]">.AI</span>
             </h1>
@@ -1040,10 +1084,48 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                <div className="flex-1 max-w-md bg-white border border-gray-200 hover:border-amber-600 transition-all shadow-lg p-6 relative group hover:-translate-y-1">
+                    <div className="absolute top-0 left-0 w-full h-1 bg-amber-600"></div>
+                    <div className="mb-6 flex items-center gap-3">
+                         <div className="p-2 bg-amber-50 text-amber-600 rounded-full"><Sparkles className="w-6 h-6"/></div>
+                         <h3 className="text-lg font-bold text-amber-600 uppercase tracking-wider">Project Iron</h3>
+                    </div>
+                     <div 
+                        onClick={() => { if(isValidApiKey(apiKey)) setView('remaster'); }}
+                        className={`
+                        relative overflow-hidden rounded-none border-2 transition-colors mb-4 h-40 flex items-center justify-center
+                        ${isValidApiKey(apiKey) ? 'border-dashed border-amber-200 hover:border-amber-600 bg-amber-50/50 hover:bg-amber-50 cursor-pointer' : 'border-gray-100 bg-gray-50 opacity-50 cursor-not-allowed'}
+                    `}>
+                        <div className="p-8 flex flex-col items-center justify-center relative z-10">
+                             <Wand2 className={`w-6 h-6 mb-2 ${isValidApiKey(apiKey) ? 'text-amber-600' : 'text-gray-300'}`} />
+                             <p className={`font-bold text-xs uppercase tracking-widest ${isValidApiKey(apiKey) ? 'text-amber-600' : 'text-gray-400'}`}>
+                                 Remaster Slide
+                             </p>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
     );
+  }
+
+  if (view === 'remaster') {
+      return (
+          <div className="min-h-screen bg-[#F8FAFC]">
+              <header className="h-20 border-b border-gray-200 bg-white flex items-center justify-between px-8 shadow-sm z-40 sticky top-0">
+                  <div className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity" onClick={() => setView('landing')}>
+                      <span className="font-serif font-bold text-2xl tracking-tighter text-[#051C2C]">Strategy<span className="text-amber-600">.Iron</span></span>
+                      <div className="h-4 w-[1px] bg-gray-300 mx-2"></div>
+                      <span className="text-xs font-bold text-gray-400 uppercase tracking-[0.2em]">Remaster Tool</span>
+                  </div>
+              </header>
+              <div className="container mx-auto px-4 py-8">
+                  <RemasterTool apiKey={apiKey} />
+              </div>
+          </div>
+      );
   }
 
   if (view === 'style-selection') {
@@ -1113,12 +1195,16 @@ const App: React.FC = () => {
 
         <div className="max-w-6xl w-full">
             <div className="text-center mb-16">
-                <h2 className="text-4xl font-bold text-[#051C2C] font-serif mb-4">Choose Consulting Persona</h2>
-                <p className="text-gray-500 text-lg">Select the logic framework and visual identity for your deck.</p>
+                <h2 className="text-4xl font-bold font-serif mb-4 text-[#051C2C]">
+                    Choose Consulting Persona
+                </h2>
+                <p className="text-gray-500 text-lg">
+                    Select the logic framework and visual identity for your deck.
+                </p>
             </div>
             
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                {['mckinsey', 'bcg', 'bain'].map((style) => (
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+                {['mckinsey', 'bcg', 'bain', 'internet'].map((style) => (
                     <div 
                         key={style}
                         onClick={() => {
@@ -1127,15 +1213,25 @@ const App: React.FC = () => {
                         }}
                         className={`bg-white p-8 border-2 cursor-pointer transition-all hover:-translate-y-2 shadow-sm hover:shadow-xl relative overflow-hidden group
                             ${consultingStyle === style 
-                                ? style === 'bcg' ? 'border-[#00291C] ring-4 ring-[#00291C]/10' : style === 'bain' ? 'border-[#CB2026] ring-4 ring-[#CB2026]/10' : 'border-[#163E93] ring-4 ring-[#163E93]/10' 
+                                ? style === 'bcg' ? 'border-[#00291C] ring-4 ring-[#00291C]/10' 
+                                : style === 'bain' ? 'border-[#CB2026] ring-4 ring-[#CB2026]/10' 
+                                : style === 'internet' ? 'border-[#3B82F6] ring-4 ring-[#3B82F6]/10'
+                                : 'border-[#163E93] ring-4 ring-[#163E93]/10' 
                                 : 'border-gray-200'
                             }
                         `}
                     >
-                         <h3 className="text-2xl font-serif font-bold uppercase mb-2 relative z-10">{style}</h3>
-                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider relative z-10">Standard Model</p>
+                         <h3 className="text-xl font-serif font-bold uppercase mb-2 relative z-10">
+                             {style === 'internet' ? 'Internet / Tech' : style}
+                         </h3>
+                         <p className="text-xs text-gray-400 font-bold uppercase tracking-wider relative z-10">
+                             {style === 'internet' ? 'Product & UX' : 'Standard Model'}
+                         </p>
                          <div className={`absolute -right-4 -bottom-4 w-24 h-24 rounded-full opacity-10 transition-transform group-hover:scale-150
-                             ${style === 'bcg' ? 'bg-[#4ecb61]' : style === 'bain' ? 'bg-[#CB2026]' : 'bg-[#163E93]'}
+                             ${style === 'bcg' ? 'bg-[#4ecb61]' 
+                             : style === 'bain' ? 'bg-[#CB2026]' 
+                             : style === 'internet' ? 'bg-[#3B82F6]'
+                             : 'bg-[#163E93]'}
                          `}></div>
                     </div>
                 ))}
@@ -1160,7 +1256,7 @@ const App: React.FC = () => {
                 <button 
                     onClick={() => startOutlineAnalysis(false)} 
                     disabled={consultingStyle === 'custom' && !customStylePrompts}
-                    className="bg-[#051C2C] hover:bg-black text-white px-12 py-4 font-bold uppercase tracking-[0.2em] flex items-center gap-4 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="text-white px-12 py-4 font-bold uppercase tracking-[0.2em] flex items-center gap-4 transition-all disabled:opacity-50 disabled:cursor-not-allowed bg-[#051C2C] hover:bg-black"
                 >
                     <span>Confirm Strategy</span>
                     <ArrowRight className="w-5 h-5" />
@@ -1369,6 +1465,12 @@ const App: React.FC = () => {
                              <div className="mb-6">
                                  <div className="flex justify-between items-center mb-2">
                                      <span className="text-[#163E93] text-xs font-bold uppercase tracking-[0.15em]">Slide {currentSlideIdx + 1} • {outline[currentSlideIdx].suggestedSlideType}</span>
+                                     {/* NEW: DISPLAY LAYOUT PATH */}
+                                     {outline[currentSlideIdx].layoutFilePath && (
+                                         <span className="text-[9px] font-mono text-emerald-600 bg-emerald-50 px-2 py-1 rounded border border-emerald-100 truncate max-w-[200px]" title={outline[currentSlideIdx].layoutFilePath}>
+                                             Layout: {outline[currentSlideIdx].layoutFilePath.split('/').pop()?.replace('.md','')}
+                                         </span>
+                                     )}
                                  </div>
                                  <h2 className="text-3xl font-bold text-[#051C2C] font-serif leading-tight">{outline[currentSlideIdx].title}</h2>
                              </div>
@@ -1479,12 +1581,45 @@ const App: React.FC = () => {
                                         </div>
                                     </div>
                                 )}
+                                {/* LAYOUT INDICATOR (Outside Canvas) */}
+                                {slides[currentSlideIdx]?.layoutFilePath && (
+                                    <div className="absolute bottom-[-24px] right-0 bg-gray-100 text-gray-500 text-[9px] px-2 py-0.5 rounded-b font-mono border border-t-0 border-gray-200 opacity-70 hover:opacity-100 transition-opacity">
+                                        Layout: {slides[currentSlideIdx].layoutFilePath?.split('/').pop()?.replace('.md','')}
+                                    </div>
+                                )}
                             </div>
                         )}
 
                         {(status.stage === 'finished' || status.stage === 'paused') && (
                             <div className={`bg-white border border-gray-200 p-4 flex gap-4 items-center shadow-sm animate-in fade-in slide-in-from-bottom-2 ${status.stage === 'paused' ? 'opacity-50 pointer-events-none grayscale' : ''}`}>
                                 <div className="bg-[#163E93] p-2 text-white"><Sparkles className="w-4 h-4" /></div>
+                                
+                                {/* REF IMAGE UPLOAD */}
+                                <div className="flex items-center gap-2">
+                                    <input 
+                                        type="file" 
+                                        id="ref-image-upload" 
+                                        className="hidden" 
+                                        accept="image/*"
+                                        onChange={(e) => handleRefineImageUpload(e.target.files)}
+                                    />
+                                    {visualRefineImage ? (
+                                        <div className="relative group">
+                                            <img src={visualRefineImage.base64} alt="Ref" className="w-10 h-10 object-cover rounded border border-gray-200" />
+                                            <button 
+                                                onClick={() => setVisualRefineImage(null)}
+                                                className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+                                            >
+                                                <X className="w-3 h-3" />
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <label htmlFor="ref-image-upload" className="cursor-pointer p-2 hover:bg-gray-100 rounded text-gray-500 transition-colors" title="Attach Reference Image">
+                                            <Upload className="w-4 h-4" />
+                                        </label>
+                                    )}
+                                </div>
+
                                 <div className="flex-1 relative">
                                     <textarea
                                         value={slideRefineInput}
