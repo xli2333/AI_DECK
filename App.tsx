@@ -19,7 +19,7 @@ import RemasterTool from './components/RemasterTool';
 import { jsPDF } from "jspdf";
 
 import { 
-  Upload, FileText, ChevronRight, Play, Layout, Download, Wand2, CheckCircle, Loader2, File, ArrowRight, Trash2, RefreshCw, Briefcase, MessageSquare, Send, Check, X, Sparkles, CornerDownLeft, Edit3, Layers, Clock, Palette, Key, Monitor, Paintbrush, Sliders, Image as ImageIcon, AlertTriangle, Command, Target, PauseCircle, PlayCircle, RotateCcw, History, Pause, Coffee, AlertCircle, PenTool, GraduationCap
+  Upload, FileText, ChevronRight, Play, Layout, Download, Wand2, CheckCircle, Loader2, File, ArrowRight, Trash2, RefreshCw, Briefcase, MessageSquare, Send, Check, X, Sparkles, CornerDownLeft, Edit3, Layers, Clock, Palette, Key, Monitor, Paintbrush, Sliders, Image as ImageIcon, AlertTriangle, Command, Target, PauseCircle, PlayCircle, RotateCcw, History, Pause, Coffee, AlertCircle, PenTool, GraduationCap, LayoutDashboard
 } from 'lucide-react';
 
 type AnalysisSubTask = {
