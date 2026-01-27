@@ -1494,27 +1494,27 @@ const App: React.FC = () => {
       
       {showLayoutModal && layoutRecommendations && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-             <div className="bg-white max-w-4xl w-full shadow-2xl border-l-8 border-amber-400 p-8 flex flex-col gap-6 relative max-h-[90vh] overflow-y-auto">
+             <div className="bg-white max-w-6xl w-full shadow-2xl border-l-8 border-amber-400 p-8 flex flex-col gap-6 relative max-h-[90vh] overflow-y-auto">
                  <button onClick={() => setShowLayoutModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
                  <div>
                     <h3 className="text-3xl font-bold text-[#051C2C] font-serif mb-2 flex items-center gap-3"><LayoutDashboard className="w-8 h-8 text-amber-500" />Smart Layout Recommendations</h3>
-                    <p className="text-gray-500 text-sm">Based on your content, the AI suggests these professional layouts from the {consultingStyle} library.</p>
+                    <p className="text-gray-500 text-sm">AI-selected professional layouts tailored to your content's logic.</p>
                 </div>
                 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                     {layoutRecommendations.map((rec) => (
                         <div 
                             key={rec.id} 
                             onClick={() => handleApplyLayoutRecommendation(rec)}
-                            className="border-2 border-gray-200 hover:border-amber-500 cursor-pointer p-6 rounded hover:shadow-lg transition-all group bg-gray-50 hover:bg-white flex flex-col"
+                            className="border border-gray-200 hover:border-amber-500 cursor-pointer p-4 rounded hover:shadow-lg transition-all group bg-gray-50 hover:bg-white flex flex-col h-full"
                         >
-                            <div className="h-32 bg-gray-200 mb-4 rounded flex items-center justify-center text-gray-400 font-bold uppercase text-xs tracking-widest group-hover:bg-amber-50 group-hover:text-amber-600 transition-colors">
-                                {rec.name} Preview
+                            <div className="h-24 bg-gray-200 mb-3 rounded flex items-center justify-center text-gray-400 font-bold uppercase text-[10px] tracking-widest group-hover:bg-amber-50 group-hover:text-amber-600 transition-colors">
+                                {rec.name}
                             </div>
-                            <h4 className="font-serif font-bold text-lg text-[#051C2C] mb-2 group-hover:text-amber-700">{rec.name}</h4>
-                            <p className="text-xs text-gray-500 mb-4 flex-1">{rec.description}</p>
-                            <div className="bg-amber-50 p-3 rounded border border-amber-100 text-[10px] text-amber-800 font-medium">
-                                <span className="font-bold uppercase block mb-1 text-amber-600">Why Recommended:</span>
+                            <h4 className="font-serif font-bold text-sm text-[#051C2C] mb-1 group-hover:text-amber-700 leading-tight">{rec.name}</h4>
+                            <p className="text-[10px] text-gray-500 mb-3 line-clamp-2">{rec.description}</p>
+                            <div className="mt-auto bg-amber-50 p-2 rounded border border-amber-100 text-[9px] text-amber-800 font-medium">
+                                <span className="font-bold uppercase block mb-0.5 text-amber-600">Match Reason:</span>
                                 {rec.reason}
                             </div>
                         </div>

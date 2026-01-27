@@ -265,7 +265,7 @@ export const getLayoutRecommendations = async (
     # INSTRUCTION:
     Analyze the "Input Slide Content". 
     Is it a comparison? A process? A list? A data chart?
-    Select the **top 3** most appropriate layouts from the "Available Layout Index".
+    Select the **top 6** most appropriate layouts from the "Available Layout Index".
     
     # OUTPUT FORMAT (JSON ARRAY ONLY):
     Return a valid JSON array of objects.
