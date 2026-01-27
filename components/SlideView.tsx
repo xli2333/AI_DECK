@@ -34,18 +34,18 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                style={{ backgroundColor: ms.backgroundColor, color: ms.colorPalette.primary }}>
               
               {/* Header */}
-              <div className="border-b pb-4 mb-6 flex justify-between items-end" style={{ borderColor: `${ms.colorPalette.secondary}40` }}>
+              <div className="border-b pb-4 mb-6 flex justify-between items-end" style={{ borderColor: `${ms.colorPalette?.secondary || '#000'}40` }}>
                   <div>
-                      <h1 className="text-3xl font-serif font-bold mb-1" style={{ fontFamily: ms.typography.title.fontFamily, color: ms.typography.title.color }}>
+                      <h1 className="text-3xl font-serif font-bold mb-1" style={{ fontFamily: ms.typography?.title?.fontFamily || 'serif', color: ms.typography?.title?.color || 'currentColor' }}>
                           {slide.actionTitle || "Design System Specification"}
                       </h1>
-                      <p className="text-sm opacity-80 uppercase tracking-widest font-medium" style={{ fontFamily: ms.typography.subtitle.fontFamily, color: ms.typography.subtitle.color }}>
+                      <p className="text-sm opacity-80 uppercase tracking-widest font-medium" style={{ fontFamily: ms.typography?.subtitle?.fontFamily || 'sans-serif', color: ms.typography?.subtitle?.color || 'currentColor' }}>
                           {slide.subtitle || "Master Visual Identity Guide"}
                       </p>
                   </div>
                   <div className="text-right">
                       <div className="text-[10px] uppercase tracking-widest font-bold mb-1 opacity-50">Identity System</div>
-                      <div className="text-lg font-bold">{ms.themeReference}</div>
+                      <div className="text-lg font-bold">{ms.themeReference || 'Custom'}</div>
                   </div>
               </div>
 
@@ -61,14 +61,14 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                       <div className="bg-black/5 p-3 rounded-sm">
                           <div className="flex justify-between items-center mb-2">
                             <p className="text-[9px] font-mono opacity-60">
-                                [TITLE] EN: {ms.typography.title.fontFamily} / CN: {ms.typography.title.fontFamilyChinese || 'None'} / {ms.typography.title.fontSize}pt / {ms.typography.title.color}
+                                [TITLE] EN: {ms.typography?.title?.fontFamily || 'N/A'} / CN: {ms.typography?.title?.fontFamilyChinese || 'None'} / {ms.typography?.title?.fontSize || 24}pt / {ms.typography?.title?.color || '#000'}
                             </p>
                           </div>
-                          <div className="grid grid-cols-2 gap-4 border-l-2 pl-3" style={{ borderColor: ms.colorPalette.primary }}>
-                              <div className="truncate" style={{ fontFamily: ms.typography.title.fontFamily, fontSize: '24px', fontWeight: 'bold' }}>
+                          <div className="grid grid-cols-2 gap-4 border-l-2 pl-3" style={{ borderColor: ms.colorPalette?.primary || '#000' }}>
+                              <div className="truncate" style={{ fontFamily: ms.typography?.title?.fontFamily || 'serif', fontSize: '24px', fontWeight: 'bold' }}>
                                   Strategy Insight
                               </div>
-                              {ms.typography.title.fontFamilyChinese && (
+                              {ms.typography?.title?.fontFamilyChinese && (
                                   <div className="truncate" style={{ fontFamily: ms.typography.title.fontFamilyChinese, fontSize: '24px', fontWeight: 'bold' }}>
                                       战略洞察结论
                                   </div>
@@ -79,13 +79,13 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                       {/* Subtitle Spec */}
                       <div className="bg-black/5 p-3 rounded-sm">
                           <p className="text-[9px] font-mono mb-2 opacity-60">
-                              [SUBTITLE] {ms.typography.subtitle.fontFamily} / {ms.typography.subtitle.fontSize}pt / {ms.typography.subtitle.color}
+                              [SUBTITLE] {ms.typography?.subtitle?.fontFamily || 'N/A'} / {ms.typography?.subtitle?.fontSize || 18}pt / {ms.typography?.subtitle?.color || '#666'}
                           </p>
-                          <div className="grid grid-cols-2 gap-4 border-l-2 pl-3" style={{ borderColor: ms.colorPalette.secondary }}>
-                              <div className="truncate" style={{ fontFamily: ms.typography.subtitle.fontFamily, fontSize: '16px' }}>
+                          <div className="grid grid-cols-2 gap-4 border-l-2 pl-3" style={{ borderColor: ms.colorPalette?.secondary || '#666' }}>
+                              <div className="truncate" style={{ fontFamily: ms.typography?.subtitle?.fontFamily || 'sans-serif', fontSize: '16px' }}>
                                   Analysis of key drivers
                               </div>
-                              {ms.typography.subtitle.fontFamilyChinese && (
+                              {ms.typography?.subtitle?.fontFamilyChinese && (
                                   <div className="truncate" style={{ fontFamily: ms.typography.subtitle.fontFamilyChinese, fontSize: '16px' }}>
                                       关键驱动因素分析
                                   </div>
@@ -96,22 +96,22 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                       {/* Body Spec */}
                       <div className="grid grid-cols-2 gap-3">
                           <div className="bg-black/5 p-3 rounded-sm">
-                              <p className="text-[9px] font-mono mb-2 opacity-60">BODY L1 / {ms.typography.bodyL1.fontSize}pt</p>
-                              <div style={{ fontFamily: ms.typography.bodyL1.fontFamily, fontSize: '13px', lineHeight: 1.4 }}>
+                              <p className="text-[9px] font-mono mb-2 opacity-60">BODY L1 / {ms.typography?.bodyL1?.fontSize || 12}pt</p>
+                              <div style={{ fontFamily: ms.typography?.bodyL1?.fontFamily || 'sans-serif', fontSize: '13px', lineHeight: 1.4 }}>
                                   Standard body text for analysis.
                               </div>
-                              {ms.typography.bodyL1.fontFamilyChinese && (
+                              {ms.typography?.bodyL1?.fontFamilyChinese && (
                                   <div style={{ fontFamily: ms.typography.bodyL1.fontFamilyChinese, fontSize: '13px', marginTop: '2px' }}>
                                       标准正文分析文本展示。
                                   </div>
                               )}
                           </div>
                           <div className="bg-black/5 p-3 rounded-sm">
-                              <p className="text-[9px] font-mono mb-2 opacity-60">BODY L2 / {ms.typography.bodyL2.fontSize}pt</p>
-                              <div style={{ fontFamily: ms.typography.bodyL2.fontFamily, fontSize: '11px', opacity: 0.8 }}>
+                              <p className="text-[9px] font-mono mb-2 opacity-60">BODY L2 / {ms.typography?.bodyL2?.fontSize || 10}pt</p>
+                              <div style={{ fontFamily: ms.typography?.bodyL2?.fontFamily || 'sans-serif', fontSize: '11px', opacity: 0.8 }}>
                                   Supporting data and annotations.
                               </div>
-                              {ms.typography.bodyL2.fontFamilyChinese && (
+                              {ms.typography?.bodyL2?.fontFamilyChinese && (
                                   <div style={{ fontFamily: ms.typography.bodyL2.fontFamilyChinese, fontSize: '11px', opacity: 0.8, marginTop: '2px' }}>
                                       支持性数据与注释文本。
                                   </div>
