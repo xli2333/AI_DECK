@@ -4,8 +4,8 @@ import { SlideData, OutlineItem, SlideType, ConsultingStyle, MasterStyleConfig }
 
 const getClient = (apiKey: string) => {
   // STRICT VALIDATION: Ensure only explicit, valid keys are used.
-  // SANITIZATION: We strictly trim the key to remove accidental newlines, spaces, or quotes from copy-pasting.
-  const cleanKey = apiKey ? apiKey.replace(/["s"'\n\r]/g, '') : "";
+  // SANITIZATION: Remove accidental newlines, spaces, or quotes from copy-pasting.
+  const cleanKey = apiKey ? apiKey.replace(/[\s"']/g, '') : "";
 
   if (!cleanKey || !cleanKey.startsWith('AIza') || cleanKey.length < 30) {
       throw new Error("No valid API Key provided. The system has no default key. You must enter your own Google Gemini API Key starting with 'AIza'.");
@@ -127,6 +127,7 @@ const callWithRetry = async <T>(fn: () => Promise<T>, retries: number = 2, label
     try {
         return await fn();
     } catch (error) {
+        console.error(`[Gemini Error] ${label} failed:`, error);
         if (retries > 0) {
             console.warn(`${label} failed, retrying... (${retries} left)`);
             await new Promise(r => setTimeout(r, 2000));
@@ -242,6 +243,7 @@ export const getLayoutRecommendations = async (
     if (indexFile) {
         try {
             indexContent = await fetchLocalPrompt(indexFile);
+            console.log(`[Smart Layout] Loaded Index File: ${indexFile} (Length: ${indexContent.length} chars)`);
         } catch (e) {
             console.warn("Could not load index file for recommendations:", e);
         }
@@ -286,7 +288,7 @@ export const getLayoutRecommendations = async (
                 contents: { parts: [{ text: prompt }] },
                 config: { responseMimeType: 'application/json' }
             }),
-            30000, "Get Layout Recommendations"
+            90000, "Get Layout Recommendations"
         ),
         1, "Get Layout Recommendations"
     );
