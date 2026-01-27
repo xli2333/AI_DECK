@@ -1,16 +1,18 @@
 
 import React from 'react';
-import { SlideData, ConsultingStyle } from '../types';
-import { Loader2, AlertCircle, Sparkles, Monitor, Palette, FileText } from 'lucide-react';
+import { SlideData, ConsultingStyle, SlideType } from '../types';
+import { Loader2, AlertCircle, Sparkles, Monitor, Palette, FileText, Type, LayoutDashboard } from 'lucide-react';
 
 interface SlideViewProps {
   slide: SlideData;
   style: ConsultingStyle;
   onRegenerateImage?: () => void;
   onRetry?: () => void;
+  onEnforceStyle?: () => void; // NEW: Callback for Master Style Enforcement
+  onSmartLayout?: () => void; // NEW: Callback for Smart Layout Recommendations
 }
 
-const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry }) => {
+const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry, onEnforceStyle, onSmartLayout }) => {
   // Define style-specific colors
   const getColors = () => {
       switch (style) {
@@ -21,6 +23,164 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
       }
   };
   const colors = getColors();
+
+  // --- NEW: MASTER STYLE GUIDE RENDERING (Code-Based) ---
+  if ((slide.slideType === SlideType.MasterStyleGuide || slide.masterStyle) && slide.status !== 'error') {
+      const ms = slide.masterStyle!;
+      if (!ms) return null; // Fallback if data missing
+
+      return (
+          <div className="w-full aspect-[16/9] relative shadow-2xl overflow-hidden flex flex-col p-8"
+               style={{ backgroundColor: ms.backgroundColor, color: ms.colorPalette.primary }}>
+              
+              {/* Header */}
+              <div className="border-b pb-4 mb-6 flex justify-between items-end" style={{ borderColor: `${ms.colorPalette.secondary}40` }}>
+                  <div>
+                      <h1 className="text-3xl font-serif font-bold mb-1" style={{ fontFamily: ms.typography.title.fontFamily, color: ms.typography.title.color }}>
+                          {slide.actionTitle || "Design System Specification"}
+                      </h1>
+                      <p className="text-sm opacity-80 uppercase tracking-widest font-medium" style={{ fontFamily: ms.typography.subtitle.fontFamily, color: ms.typography.subtitle.color }}>
+                          {slide.subtitle || "Master Visual Identity Guide"}
+                      </p>
+                  </div>
+                  <div className="text-right">
+                      <div className="text-[10px] uppercase tracking-widest font-bold mb-1 opacity-50">Identity System</div>
+                      <div className="text-lg font-bold">{ms.themeReference}</div>
+                  </div>
+              </div>
+
+              <div className="flex-1 flex gap-8 min-h-0">
+                  {/* Left Column: Typography (Expanded) */}
+                  <div className="flex-[1.5] space-y-4 overflow-hidden">
+                      <div className="flex items-center gap-2 mb-2 opacity-50 border-b pb-1">
+                          <Type size={14} />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Typography & Font Pairing</span>
+                      </div>
+                      
+                      {/* Title Spec */}
+                      <div className="bg-black/5 p-3 rounded-sm">
+                          <div className="flex justify-between items-center mb-2">
+                            <p className="text-[9px] font-mono opacity-60">
+                                [TITLE] EN: {ms.typography.title.fontFamily} / CN: {ms.typography.title.fontFamilyChinese || 'None'} / {ms.typography.title.fontSize}pt / {ms.typography.title.color}
+                            </p>
+                          </div>
+                          <div className="grid grid-cols-2 gap-4 border-l-2 pl-3" style={{ borderColor: ms.colorPalette.primary }}>
+                              <div className="truncate" style={{ fontFamily: ms.typography.title.fontFamily, fontSize: '24px', fontWeight: 'bold' }}>
+                                  Strategy Insight
+                              </div>
+                              {ms.typography.title.fontFamilyChinese && (
+                                  <div className="truncate" style={{ fontFamily: ms.typography.title.fontFamilyChinese, fontSize: '24px', fontWeight: 'bold' }}>
+                                      战略洞察结论
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+
+                      {/* Subtitle Spec */}
+                      <div className="bg-black/5 p-3 rounded-sm">
+                          <p className="text-[9px] font-mono mb-2 opacity-60">
+                              [SUBTITLE] {ms.typography.subtitle.fontFamily} / {ms.typography.subtitle.fontSize}pt / {ms.typography.subtitle.color}
+                          </p>
+                          <div className="grid grid-cols-2 gap-4 border-l-2 pl-3" style={{ borderColor: ms.colorPalette.secondary }}>
+                              <div className="truncate" style={{ fontFamily: ms.typography.subtitle.fontFamily, fontSize: '16px' }}>
+                                  Analysis of key drivers
+                              </div>
+                              {ms.typography.subtitle.fontFamilyChinese && (
+                                  <div className="truncate" style={{ fontFamily: ms.typography.subtitle.fontFamilyChinese, fontSize: '16px' }}>
+                                      关键驱动因素分析
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+
+                      {/* Body Spec */}
+                      <div className="grid grid-cols-2 gap-3">
+                          <div className="bg-black/5 p-3 rounded-sm">
+                              <p className="text-[9px] font-mono mb-2 opacity-60">BODY L1 / {ms.typography.bodyL1.fontSize}pt</p>
+                              <div style={{ fontFamily: ms.typography.bodyL1.fontFamily, fontSize: '13px', lineHeight: 1.4 }}>
+                                  Standard body text for analysis.
+                              </div>
+                              {ms.typography.bodyL1.fontFamilyChinese && (
+                                  <div style={{ fontFamily: ms.typography.bodyL1.fontFamilyChinese, fontSize: '13px', marginTop: '2px' }}>
+                                      标准正文分析文本展示。
+                                  </div>
+                              )}
+                          </div>
+                          <div className="bg-black/5 p-3 rounded-sm">
+                              <p className="text-[9px] font-mono mb-2 opacity-60">BODY L2 / {ms.typography.bodyL2.fontSize}pt</p>
+                              <div style={{ fontFamily: ms.typography.bodyL2.fontFamily, fontSize: '11px', opacity: 0.8 }}>
+                                  Supporting data and annotations.
+                              </div>
+                              {ms.typography.bodyL2.fontFamilyChinese && (
+                                  <div style={{ fontFamily: ms.typography.bodyL2.fontFamilyChinese, fontSize: '11px', opacity: 0.8, marginTop: '2px' }}>
+                                      支持性数据与注释文本。
+                                  </div>
+                              )}
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Right Column: Color Palette & Rules */}
+                  <div className="flex-1 space-y-6">
+                      <div className="flex items-center gap-2 mb-2 opacity-50 border-b pb-1">
+                          <Palette size={14} />
+                          <span className="text-[10px] font-bold uppercase tracking-widest">Visual DNA & Palette</span>
+                      </div>
+
+                      {/* Primary Colors */}
+                      <div className="grid grid-cols-2 gap-3">
+                          <div className="flex items-center gap-3 bg-white p-2 rounded shadow-sm ring-1 ring-black/5">
+                              <div className="w-10 h-10 rounded-sm shrink-0" style={{ backgroundColor: ms.colorPalette.primary }}></div>
+                              <div className="overflow-hidden">
+                                  <div className="font-bold text-[10px] uppercase">Primary</div>
+                                  <div className="font-mono text-[9px] opacity-60 truncate">{ms.colorPalette.primary}</div>
+                              </div>
+                          </div>
+                          <div className="flex items-center gap-3 bg-white p-2 rounded shadow-sm ring-1 ring-black/5">
+                              <div className="w-10 h-10 rounded-sm shrink-0" style={{ backgroundColor: ms.colorPalette.secondary }}></div>
+                              <div className="overflow-hidden">
+                                  <div className="font-bold text-[10px] uppercase">Secondary</div>
+                                  <div className="font-mono text-[9px] opacity-60 truncate">{ms.colorPalette.secondary}</div>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* Chart Sequence */}
+                      <div className="bg-white p-3 rounded shadow-sm ring-1 ring-black/5">
+                          <div className="text-[9px] font-bold uppercase tracking-wider mb-3 opacity-40">Data Visualization Sequence</div>
+                          <div className="flex justify-between gap-1">
+                              {ms.colorPalette.chartColors.slice(0, 6).map((color, idx) => (
+                                  <div key={idx} className="flex-1 flex flex-col items-center gap-1">
+                                      <div className="w-full aspect-square rounded-sm" style={{ backgroundColor: color }}></div>
+                                      <div className="font-mono text-[8px] opacity-40">{color.replace('#','')}</div>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+
+                      {/* Layout Rules (Placeholder/Decorative) */}
+                      <div className="border-t pt-4">
+                        <div className="text-[9px] font-bold uppercase tracking-wider mb-2 opacity-40">Standard Layout Rules</div>
+                        <div className="grid grid-cols-3 gap-2 opacity-20">
+                            <div className="aspect-video bg-current rounded-sm"></div>
+                            <div className="aspect-video bg-current rounded-sm"></div>
+                            <div className="aspect-video bg-current rounded-sm"></div>
+                        </div>
+                      </div>
+                  </div>
+              </div>
+
+              {/* Footer System Info */}
+              <div className="mt-auto pt-3 border-t flex justify-between text-[9px] font-mono opacity-30" style={{ borderColor: `${ms.colorPalette.primary}20` }}>
+                  <div>ENGINE: STRATEGY.AI • SPEC_V3.1</div>
+                  <div className="flex gap-4">
+                      <span>RENDER_4K: ACTIVE</span>
+                      <span>CSS_METHODOLOGY: CONSULTING_GRID</span>
+                  </div>
+              </div>
+          </div>
+      );
+  }
 
   // IF IMAGE EXISTS: Render the full slide image
   if (slide.imageBase64 && slide.status !== 'error') {
@@ -49,16 +209,40 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                 alt={slide.actionTitle} 
                 className="w-full h-full object-contain"
             />
-            {onRegenerateImage && slide.status !== 'upscaling' && (
-                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button 
-                        onClick={onRegenerateImage}
-                        className="bg-white/90 hover:bg-white px-4 py-2 rounded shadow-lg border border-gray-200 text-xs font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
-                        style={{ color: colors.text }}
-                    >
-                        <Sparkles className="w-3 h-3" />
-                        Regenerate Visual
-                    </button>
+            {slide.status !== 'upscaling' && (
+                <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col gap-2 items-end">
+                    
+                    {/* ENFORCE MASTER STYLE BUTTON */}
+                    {onEnforceStyle && (
+                        <button 
+                            onClick={onEnforceStyle}
+                            className="bg-[#051C2C]/90 hover:bg-[#051C2C] text-white px-4 py-2 rounded shadow-lg border border-gray-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
+                        >
+                            <Palette className="w-3 h-3 text-emerald-400" />
+                            Fix with Model Page
+                        </button>
+                    )}
+
+                    {onSmartLayout && (
+                        <button 
+                            onClick={onSmartLayout}
+                            className="bg-[#051C2C]/90 hover:bg-[#051C2C] text-white px-4 py-2 rounded shadow-lg border border-gray-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
+                        >
+                            <LayoutDashboard className="w-3 h-3 text-amber-400" />
+                            Smart Layout
+                        </button>
+                    )}
+
+                    {onRegenerateImage && (
+                        <button 
+                            onClick={onRegenerateImage}
+                            className="bg-white/90 hover:bg-white px-4 py-2 rounded shadow-lg border border-gray-200 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
+                            style={{ color: colors.text }}
+                        >
+                            <Sparkles className="w-3 h-3" />
+                            Regenerate Visual
+                        </button>
+                    )}
                 </div>
             )}
         </div>

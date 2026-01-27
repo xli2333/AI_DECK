@@ -1,4 +1,5 @@
 export enum SlideType {
+  MasterStyleGuide = "Master Style Guide",
   Title = "Title Slide",
   ExecutiveSummary = "Executive Summary",
   TwoColumnText = "2-Column Text",
@@ -11,6 +12,34 @@ export enum SlideType {
 }
 
 export type ConsultingStyle = 'mckinsey' | 'bcg' | 'bain' | 'internet' | 'custom';
+
+export interface TypographySpec {
+  fontFamily: string;
+  fontFamilyChinese?: string;
+  fontSize: number; // pt
+  color: string;    // hex
+  fontWeight?: string;
+  lineHeight?: number;
+}
+
+export interface MasterStyleConfig {
+  themeReference: string; // e.g. "McKinsey", "Internet"
+  backgroundColor: string; // Default #FFFFFF unless overridden
+  colorPalette: {
+    primary: string;
+    secondary: string;
+    accent: string[];
+    chartColors: string[];
+  };
+  typography: {
+    title: TypographySpec;
+    subtitle: TypographySpec;
+    sectionHeader: TypographySpec;
+    bodyL1: TypographySpec;
+    bodyL2: TypographySpec;
+    bodyL3: TypographySpec;
+  };
+}
 
 export interface OutlineItem {
     id: string;
@@ -40,6 +69,7 @@ export interface SlideData {
   };
   layoutElements?: LayoutElement[]; // New field for MBB style precision layouts
   layoutFilePath?: string; // Persist the specific layout file path (BCG/MBB)
+  masterStyle?: MasterStyleConfig; // NEW: Only present on the first slide (Index 0)
   imageBase64?: string;
   isHighRes?: boolean;
   status: 'pending' | 'generating_text' | 'generating_visual' | 'upscaling' | 'complete' | 'error';
@@ -86,6 +116,14 @@ export interface RemasteredSlideData {
   originalImage: string;   // Base64 原图
   cleanBackground: string; // Base64 (Nanobanana 输出的无打印字背景)
   elements: SlideElement[]; // OCR 提取的文字
+}
+
+export interface LayoutRecommendation {
+  id: string;
+  name: string;      // e.g., "Vertical Ranking Bar Chart"
+  description: string; // e.g., "Best for comparing entities..."
+  reason: string;      // e.g., "Your content emphasizes top performers..."
+  layoutFilePath: string; // e.g., "Prompts/Bain Prompts/..."
 }
 
 export interface GenerationState {

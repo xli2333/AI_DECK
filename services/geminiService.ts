@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type, GenerateContentResponse } from "@google/genai";
 import { getSystemPrompts } from "../constants";
-import { SlideData, OutlineItem, SlideType, ConsultingStyle } from "../types";
+import { SlideData, OutlineItem, SlideType, ConsultingStyle, MasterStyleConfig } from "../types";
 
 const getClient = (apiKey: string) => {
   // STRICT VALIDATION: Ensure only explicit, valid keys are used.
@@ -221,6 +221,80 @@ export const extractCustomStyle = async (
 };
 
 
+// --- 9. GET LAYOUT RECOMMENDATIONS (SMART LAYOUT) ---
+export const getLayoutRecommendations = async (
+    slideTitle: string,
+    slideSummary: string,
+    slideKeyPoints: string[],
+    style: ConsultingStyle, 
+    apiKey: string
+): Promise<any[]> => {
+    const client = getClient(apiKey);
+    
+    // 1. Load the Style Index
+    let indexFile = "";
+    if (style === 'bcg') indexFile = 'Prompts/BCG Prompts/BCG_Instruction_Index.md';
+    else if (style === 'mckinsey') indexFile = 'Prompts/McKinsey Prompts/McKinsey_Prompt_Index.md';
+    else if (style === 'bain') indexFile = 'Prompts/Bain Prompts/Bain_Instruction_Index.md';
+    else if (style === 'internet') indexFile = 'Prompts/Internet Prompts/Internet_Prompts_Index.md';
+    
+    let indexContent = "No specific index available. Recommend generic charts.";
+    if (indexFile) {
+        try {
+            indexContent = await fetchLocalPrompt(indexFile);
+        } catch (e) {
+            console.warn("Could not load index file for recommendations:", e);
+        }
+    }
+
+    const prompt = `
+    # ROLE: ${style.toUpperCase()} Presentation Expert & Layout Specialist
+    # TASK: Recommend the best 3 layout templates for a specific slide.
+    
+    # INPUT SLIDE CONTENT:
+    **Title:** "${slideTitle}"
+    **Summary:** "${slideSummary}"
+    **Key Points:**
+    ${slideKeyPoints.map(p => `- ${p}`).join('\n')}
+
+    # AVAILABLE LAYOUT INDEX (SOURCE OF TRUTH):
+    ${indexContent}
+
+    # INSTRUCTION:
+    Analyze the "Input Slide Content". 
+    Is it a comparison? A process? A list? A data chart?
+    Select the **top 3** most appropriate layouts from the "Available Layout Index".
+    
+    # OUTPUT FORMAT (JSON ARRAY ONLY):
+    Return a valid JSON array of objects.
+    [
+      {
+        "id": "unique_id_1",
+        "name": "Name of the Layout (e.g., Vertical Bar Chart)",
+        "description": "Brief description of what this layout shows.",
+        "reason": "Why this fits the content (e.g., 'Because you are comparing 3 distinct regions...')",
+        "layoutFilePath": "The EXACT file path from the index (e.g., Prompts/Bain Prompts/...)"
+      },
+      ...
+    ]
+    `;
+
+    const response: GenerateContentResponse = await callWithRetry(
+        () => withTimeout(
+            client.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: { parts: [{ text: prompt }] },
+                config: { responseMimeType: 'application/json' }
+            }),
+            30000, "Get Layout Recommendations"
+        ),
+        1, "Get Layout Recommendations"
+    );
+
+    const jsonStr = extractJson(response.text || "[]");
+    return JSON.parse(jsonStr);
+};
+
 // --- HELPER: Fetch Local Prompt File ---
 const fetchLocalPrompt = async (filePath: string): Promise<string> => {
     try {
@@ -368,10 +442,19 @@ export const generateOutline = async (
 
     ${dynamicContext}
     
+    # MANDATORY STRUCTURE RULE (MASTER STYLE):
+    The FIRST SLIDE (Index 0) of the JSON output MUST BE a special slide.
+    - Title: "Master Style Guide"
+    - Executive Summary: "Defining the visual system for ${style.toUpperCase()} style."
+    - Suggested Slide Type: "Master Style Guide"
+    - Key Points: ["Define Typography", "Define Palette", "Define Spacing"]
+    
+    This is REQUIRED. The rest of the slides follow the storyboard.
+
     # TASK
     1. Deeply analyze the provided Input Data & Files.
     2. Extract the strategic narrative that aligns with the User Mandate.
-    3. Create a logical, persuasive storyboard (5-10 slides) in ${style.toUpperCase()} style.
+    3. Create a logical, persuasive storyboard (start with the Master Style Guide, then 5-10 content slides) in ${style.toUpperCase()} style.
     ${indexFile ? "4. CRITICAL: Select a 'layoutFilePath' for every slide from the provided Index." : ""}
     `;
 
@@ -402,6 +485,105 @@ export const generateOutline = async (
     }));
 };
 
+// --- NEW: MASTER STYLE GENERATOR ---
+const generateMasterStyleSlide = async (
+    input: AnalysisInput,
+    outlineItem: OutlineItem,
+    style: ConsultingStyle,
+    apiKey: string
+): Promise<SlideData> => {
+    const client = getClient(apiKey);
+    
+    const prompt = `
+    # ROLE: Design System Architect
+    # TASK: Define the MASTER VISUAL STYLE for a ${style.toUpperCase()} consulting deck.
+    
+    # CONTEXT:
+    The user wants a consistent design system. You must define the exact fonts, sizes, and colors that will be used for ALL subsequent slides.
+    
+    # CRITICAL: FONT SELECTION RULES (IGNORE BROWSER COMPATIBILITY)
+    The final output is an IMAGE generated by an AI (NanoBanana), NOT a website. 
+    **We do NOT care if the user has the font installed.** We care about the **Visual Authenticity**.
+    
+    1. **Do NOT default to "Arial" or "Microsoft YaHei".** These look cheap/amateur.
+    2. **Select the ACTUAL professional fonts** associated with the style:
+       - **McKinsey**: Serif for Titles (*Georgia, Garamond*), Sans for Body (*Calibri, Arial*). CN: *Songti SC* (Serif) or *PingFang SC* (Sans).
+       - **BCG**: Strong Sans-Serif (*Verdana, Trebuchet MS*). CN: *PingFang SC* or *Source Han Sans*.
+       - **Bain**: Clean Sans-Serif (*Lato, Helvetica*). CN: *HarmonyOS Sans* or *PingFang SC*.
+       - **Internet/Tech**: Modern Geometric (*Inter, Roboto, SF Pro*). CN: *PingFang SC* (The Gold Standard), *HarmonyOS Sans*, or *Lantinghei*.
+    
+    # REQUIREMENTS:
+    1. **Background**: MUST be White (#FFFFFF) unless the user explicitly requested Dark Mode in the input text: "${input.text || ''}".
+    2. **Palette**: Create a sophisticated color palette suitable for ${style}.
+    3. **Typography**: Define a hierarchy (Title, Subtitle, Body Levels).
+    
+    # OUTPUT FORMAT (JSON ONLY):
+    {
+      "masterStyle": {
+        "themeReference": "${style}",
+        "backgroundColor": "#FFFFFF",
+        "colorPalette": {
+           "primary": "#HEX",
+           "secondary": "#HEX",
+           "accent": ["#HEX", "#HEX"],
+           "chartColors": ["#HEX", "#HEX", "#HEX", "#HEX", "#HEX"]
+        },
+        "typography": {
+           "title": { "fontFamily": "[Insert Authentic Font Name]", "fontFamilyChinese": "[Insert Professional CN Font]", "fontSize": 24, "color": "#000000" },
+           "subtitle": { "fontFamily": "[Insert Authentic Font Name]", "fontFamilyChinese": "[Insert Professional CN Font]", "fontSize": 18, "color": "#666666" },
+           "sectionHeader": { "fontFamily": "[Insert Authentic Font Name]", "fontFamilyChinese": "[Insert Professional CN Font]", "fontSize": 14, "color": "#000000", "fontWeight": "bold" },
+           "bodyL1": { "fontFamily": "[Insert Authentic Font Name]", "fontFamilyChinese": "[Insert Professional CN Font]", "fontSize": 12, "color": "#333333" },
+           "bodyL2": { "fontFamily": "[Insert Authentic Font Name]", "fontFamilyChinese": "[Insert Professional CN Font]", "fontSize": 10, "color": "#555555" },
+           "bodyL3": { "fontFamily": "[Insert Authentic Font Name]", "fontFamilyChinese": "[Insert Professional CN Font]", "fontSize": 9, "color": "#777777" }
+        }
+      },
+      "actionTitle": "Design System Specification",
+      "visualSpecification": {
+         "fullImagePrompt": "A clean, minimalist style guide sheet showing color swatches and typography hierarchy on a white background. High resolution, professional."
+      },
+      "bodyContent": [
+         "This slide defines the visual rules for the deck.",
+         "Primary Color: [Insert Primary Color Name]",
+         "English Font: [Insert Font Name]",
+         "Chinese Font: [Insert Font Name]"
+      ]
+    }
+    `;
+
+    const response: GenerateContentResponse = await callWithRetry(
+        () => withTimeout(
+            client.models.generateContent({
+                model: 'gemini-3-pro-preview',
+                contents: { parts: [{ text: prompt }] },
+                config: { responseMimeType: 'application/json' }
+            }),
+            30000, "Generate Master Style"
+        ),
+        2, "Generate Master Style"
+    );
+
+    const jsonStr = extractJson(response.text || "{}");
+    const data = JSON.parse(jsonStr);
+
+    return {
+        id: outlineItem.id,
+        slideType: SlideType.MasterStyleGuide,
+        actionTitle: data.actionTitle || "Master Style Guide",
+        subtitle: "Visual System Definition",
+        visualSpecification: {
+            chartType: "Style Guide",
+            axesVariables: "",
+            keyInsight: "Consistent Visual Identity",
+            annotation: "",
+            fullImagePrompt: data.visualSpecification?.fullImagePrompt || "Style Guide"
+        },
+        bodyContent: sanitizeStringArray(data.bodyContent),
+        footer: { source: "System", disclaimer: "Internal Use" },
+        masterStyle: data.masterStyle,
+        status: 'generating_visual'
+    };
+};
+
 // --- 2. GENERATE SLIDE CONTENT (GEMINI 3 PRO - BRAIN) ---
 export const generateSlideContent = async (
     input: AnalysisInput, 
@@ -410,10 +592,31 @@ export const generateSlideContent = async (
     style: ConsultingStyle, 
     apiKey: string,
     globalInstructions?: string,
-    customPrompts?: { core: string, visual: string }
+    customPrompts?: { core: string, visual: string },
+    masterStyleConfig?: MasterStyleConfig // NEW: Pass the Master Style
 ): Promise<SlideData> => {
+    // --- NEW: MASTER STYLE INTERCEPT ---
+    if (outlineItem.suggestedSlideType === SlideType.MasterStyleGuide || outlineItem.title === "Master Style Guide") {
+        return generateMasterStyleSlide(input, outlineItem, style, apiKey);
+    }
+
     const client = getClient(apiKey);
     let { constructionPrompt } = getSystemPrompts(style, customPrompts);
+
+    // --- NEW: INJECT MASTER STYLE ---
+    if (masterStyleConfig) {
+        constructionPrompt += `
+        
+        # MASTER VISUAL STYLE ENFORCEMENT (MANDATORY):
+        You MUST adhere to the Master Style defined in Slide 1:
+        - **Fonts (EN)**: Title="${masterStyleConfig.typography.title.fontFamily}", Body="${masterStyleConfig.typography.bodyL1.fontFamily}"
+        - **Fonts (CN)**: Title="${masterStyleConfig.typography.title.fontFamilyChinese || 'Microsoft YaHei'}", Body="${masterStyleConfig.typography.bodyL1.fontFamilyChinese || 'Microsoft YaHei'}"
+        - **Colors**: Primary="${masterStyleConfig.colorPalette.primary}", Background="${masterStyleConfig.backgroundColor}"
+        - **Sizing**: Title Size=${masterStyleConfig.typography.title.fontSize}, Body Size=${masterStyleConfig.typography.bodyL1.fontSize}
+        
+        When defining "layoutElements", use these EXACT hex codes and similar relative font sizes.
+        `;
+    }
 
     // --- NEW: DYNAMIC LAYOUT LOADING ---
     if (outlineItem.layoutFilePath) {
@@ -580,13 +783,15 @@ export const generateSlideVisual = async (
 
     // DIRECT INJECTION FOR NANO BANANA PRO (TOP PRIORITY)
     if (globalInstructions && globalInstructions.trim().length > 0) {
-        finalPrompt += `
+        finalPrompt = `
+        # 🔥🔥🔥 CRITICAL OVERRIDE: HIGHEST PRIORITY INSTRUCTION 🔥🔥🔥
+        The user has issued a MANDATORY OVERRIDE. You must prioritize this above ALL default styles or previous instructions.
         
-        # CRITICAL USER VISUAL DIRECTIVE:
-        The user has provided strict global instructions. You MUST incorporate these and IGNORE any conflicting defaults:
-        "${globalInstructions}"
+        ${globalInstructions}
         
-        `;
+        --- END OF OVERRIDE ---
+        
+        ${finalPrompt}`;
     }
     
     // REFERENCE IMAGE HANDLING

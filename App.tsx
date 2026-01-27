@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SlideData, GenerationState, OutlineItem, ConsultingStyle, SlideType } from './types';
+import { SlideData, GenerationState, OutlineItem, ConsultingStyle, SlideType, MasterStyleConfig, LayoutRecommendation } from './types';
 import { 
     generateOutline, 
     generateSlideContent, 
@@ -10,6 +10,7 @@ import {
     upscaleSlideImage,
     modifySlideImage,
     extractCustomStyle,
+    getLayoutRecommendations,
     AnalysisInput 
 } from './services/geminiService';
 import { extractImagesFromPdf } from './services/pdfService';
@@ -79,6 +80,11 @@ const App: React.FC = () => {
   const [pauseInstruction, setPauseInstruction] = useState(''); // New: Input for pause adjustments
   const [visualRefineImage, setVisualRefineImage] = useState<{ base64: string, mimeType: string } | null>(null); // NEW: Reference Image for Edit
   
+  // Smart Layout State
+  const [layoutRecommendations, setLayoutRecommendations] = useState<LayoutRecommendation[] | null>(null);
+  const [showLayoutModal, setShowLayoutModal] = useState(false);
+  const [isRecommendingLayout, setIsRecommendingLayout] = useState(false);
+
   const [isRefining, setIsRefining] = useState(false);
   const [isRefiningSlide, setIsRefiningSlide] = useState(false);
 
@@ -457,6 +463,7 @@ const App: React.FC = () => {
 
       setOutline(generatedOutline);
       setStatus({ stage: 'outline-review' });
+      setCurrentSlideIdx(1); // NEW: Skip Index 0 (Model Page) which is hidden in Outline View
       
       setTimeout(() => {
           setView('workspace');
@@ -599,6 +606,97 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSmartLayoutRecommendation = async () => {
+      if (currentSlideIdx === 0) return; // Skip Model Page
+      const currentSlide = slides[currentSlideIdx];
+      
+      setIsRecommendingLayout(true);
+      try {
+          // Fetch recommendations
+          const recs = await getLayoutRecommendations(
+              currentSlide.actionTitle,
+              currentSlide.subtitle || "",
+              currentSlide.bodyContent || [],
+              consultingStyle,
+              apiKey
+          );
+          
+          setLayoutRecommendations(recs);
+          setShowLayoutModal(true);
+      } catch (e) {
+          alert("Failed to get layout recommendations: " + (e as Error).message);
+      } finally {
+          setIsRecommendingLayout(false);
+      }
+  };
+
+  const handleApplyLayoutRecommendation = async (rec: LayoutRecommendation) => {
+      setShowLayoutModal(false);
+      
+      // 1. Update Slide with new Layout Path
+      const currentSlide = slides[currentSlideIdx];
+      updateSlideStatus(currentSlideIdx, { 
+          layoutFilePath: rec.layoutFilePath,
+          status: 'generating_text',
+          currentStep: `Adopting Layout: ${rec.name}...`
+      });
+
+      try {
+          // 2. Regenerate Slide Content (to fit new layout structure)
+          // We treat this as a "Regenerate Final Slide" call but with the new layout file enforced by the update above.
+          // Note: regenerateFinalSlide reads the current slide object. We need to make sure the state is updated first.
+          
+          // Force update the slide object in memory for the function call
+          const updatedSlideRef = { ...currentSlide, layoutFilePath: rec.layoutFilePath };
+          
+          const input: AnalysisInput = {};
+          if (filesData.length > 0) input.filesData = filesData.map(f => ({ mimeType: f.mimeType, base64: f.base64 }));
+          if (deckPurpose.trim()) input.text = `PURPOSE: ${deckPurpose}\n\n`;
+
+          // Regenerate Content
+          const newContent = await regenerateFinalSlide(
+              input, 
+              updatedSlideRef, 
+              `Switch to layout: ${rec.name}. Ensure the content fits this structure.`, 
+              slideHistoryMap[currentSlide.id] || [], 
+              consultingStyle, 
+              apiKey, 
+              customStylePrompts
+          );
+
+          updateSlideStatus(currentSlideIdx, { ...newContent, status: 'generating_visual', currentStep: 'Rendering New Layout...' });
+
+          // 3. Regenerate Visual
+          const slideContext = {
+              title: newContent.actionTitle,
+              subtitle: newContent.subtitle || "",
+              keyPoints: newContent.bodyContent
+          };
+
+          const visual = await generateSlideVisual(
+              input, 
+              slideContext, 
+              newContent.visualSpecification.fullImagePrompt, 
+              consultingStyle, 
+              apiKey, 
+              '4K', 
+              undefined, 
+              customStylePrompts
+          );
+          
+          updateSlideStatus(currentSlideIdx, { 
+              imageBase64: visual, 
+              status: 'complete', 
+              currentStep: undefined, 
+              isHighRes: true 
+          });
+
+      } catch (e) {
+          alert("Failed to apply layout: " + (e as Error).message);
+          updateSlideStatus(currentSlideIdx, { status: 'complete', currentStep: undefined });
+      }
+  };
+
   const handleSlideModify = async () => {
       if (!slideRefineInput.trim()) return;
       if (!slides[currentSlideIdx].imageBase64) {
@@ -694,6 +792,9 @@ const App: React.FC = () => {
           if (s) previousSlidesContext.push({ title: s.actionTitle, summary: s.subtitle || "" });
       }
 
+      // NEW: Initialize Master Style
+      let activeMasterStyle: MasterStyleConfig | undefined = slidesRef.current[0]?.masterStyle;
+
       for (let i = startIndex; i < outline.length; i++) {
           // Check Pause
           if (shouldPauseRef.current) {
@@ -718,7 +819,12 @@ const App: React.FC = () => {
           try {
               // 1. Structural Blueprint (Text Generation)
               updateSlideStatus(i, { currentStep: 'Drafting Content...' });
-              const slideContent = await generateSlideContent(input, item, previousSlidesContext, consultingStyle, apiKey, instructions, customStylePrompts);
+              const slideContent = await generateSlideContent(input, item, previousSlidesContext, consultingStyle, apiKey, instructions, customStylePrompts, activeMasterStyle);
+              
+              if (slideContent.masterStyle) {
+                  activeMasterStyle = slideContent.masterStyle;
+              }
+
               previousSlidesContext.push({ title: slideContent.actionTitle, summary: item.executiveSummary });
               
               // Small delay to allow UI to show 'generating_visual' transition clearly
@@ -735,6 +841,21 @@ const App: React.FC = () => {
 
               // Update status to generating_visual (Rendering)
               updateSlideStatus(i, { ...slideContent, status: 'generating_visual', currentStep: 'Designing Visuals...' });
+
+              // --- SPECIAL CASE: MASTER STYLE GUIDE (NO IMAGE GEN) ---
+              if (slideContent.slideType === SlideType.MasterStyleGuide || slideContent.masterStyle) {
+                  // Skip Nanobanana. Mark as complete immediately.
+                  // We add a tiny delay just for UX smoothness
+                  await new Promise(r => setTimeout(r, 500));
+                  updateSlideStatus(i, { 
+                      ...slideContent,
+                      status: 'complete', 
+                      currentStep: undefined, 
+                      isHighRes: true,
+                      imageBase64: undefined // Explicitly no image
+                  });
+                  continue; // SKIP TO NEXT SLIDE
+              }
 
               setStatus(prev => ({ ...prev, progress: { current: i + 1, total: outline.length, status: `Designer: Rendering Slide ${i+1}...` } }));
               
@@ -923,7 +1044,15 @@ const App: React.FC = () => {
               hotfixes: ["px_scaling"]
           });
 
-          slides.forEach((slide, index) => {
+          // Filter out the Model Page (Master Style Guide)
+          const exportSlides = slides.filter(s => s.slideType !== SlideType.MasterStyleGuide);
+
+          if (exportSlides.length === 0) {
+              alert("No content slides to export.");
+              return;
+          }
+
+          exportSlides.forEach((slide, index) => {
               if (index > 0) doc.addPage();
               if (slide.imageBase64) {
                   doc.addImage(slide.imageBase64, 'PNG', 0, 0, 1920, 1080, '', 'FAST');
@@ -940,6 +1069,81 @@ const App: React.FC = () => {
           setIsExporting(false);
       }
   };
+
+  // --- NEW: ENFORCE MASTER STYLE (Fix Slide) ---
+  const handleEnforceMasterStyle = async () => {
+      // 1. Get Master Style DNA
+      const masterSlide = slides.find(s => s.slideType === SlideType.MasterStyleGuide || s.masterStyle);
+      const masterConfig = masterSlide?.masterStyle;
+
+      if (!masterConfig) {
+          alert("No Master Style Guide found (Slide 0). Cannot enforce style.");
+          return;
+      }
+
+      if (currentSlideIdx === 0 || !slides[currentSlideIdx]) return;
+
+      const currentSlide = slides[currentSlideIdx];
+      
+      // 2. Set Status to Regenerating
+      updateSlideStatus(currentSlideIdx, { 
+          status: 'generating_visual', 
+          currentStep: 'Applying Master Style Rules...' 
+      });
+
+      try {
+          // 3. Construct Context
+          const slideContext = {
+              title: currentSlide.actionTitle,
+              subtitle: currentSlide.subtitle || "",
+              keyPoints: currentSlide.bodyContent
+          };
+
+          // 4. Construct STRICT Style Instruction (STYLE OVERRIDE ONLY)
+          const styleInstruction = `
+          # CRITICAL INSTRUCTION: APPLY MASTER STYLE SKIN
+          
+          **OBJECTIVE**: Repaint this slide using the Master Style Palette, BUT KEEP THE LAYOUT EXACTLY THE SAME.
+          
+          ## 1. WHAT TO KEEP (DO NOT CHANGE):
+          - **Layout Structure**: Keep columns, charts, and text positions exactly as they are.
+          - **Content**: Do not change the text or data.
+          
+          ## 2. WHAT TO CHANGE (MANDATORY OVERRIDE):
+          - **BACKGROUND**: Must be exactly ${masterConfig.backgroundColor}.
+          - **TITLES**: Must use color ${masterConfig.colorPalette.primary} and font-family "${masterConfig.typography.title.fontFamily}" (or "${masterConfig.typography.title.fontFamilyChinese || 'Microsoft YaHei'}" for Chinese).
+          - **CHARTS/SHAPES**: Repaint all charts using ONLY this palette: ${masterConfig.colorPalette.chartColors.join(', ')}.
+          - **ACCENTS**: Use ${masterConfig.colorPalette.secondary} for highlights.
+          
+          ## EXECUTION:
+          Take the existing visual concept and "skin" it with these colors and fonts. Do not hallucinate new objects.
+          `;
+
+          // 5. Call Nanobanana
+          const newVisual = await generateSlideVisual(
+              {}, // No new input files needed, uses internal logic
+              slideContext, 
+              currentSlide.visualSpecification.fullImagePrompt, // Keep original concept
+              consultingStyle, 
+              apiKey, 
+              '4K', 
+              styleInstruction, // Pass enforcement as global instruction
+              customStylePrompts
+          );
+          
+          updateSlideStatus(currentSlideIdx, { 
+              imageBase64: newVisual, 
+              status: 'complete', 
+              currentStep: undefined, 
+              isHighRes: true 
+          });
+
+      } catch (e) {
+          alert("Failed to enforce master style: " + (e as Error).message);
+          updateSlideStatus(currentSlideIdx, { status: 'complete', currentStep: undefined }); // Revert status
+      }
+  };
+
 
   // --- Views ---
 
@@ -1288,6 +1492,42 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-sans flex flex-col relative">
       
+      {showLayoutModal && layoutRecommendations && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+             <div className="bg-white max-w-4xl w-full shadow-2xl border-l-8 border-amber-400 p-8 flex flex-col gap-6 relative max-h-[90vh] overflow-y-auto">
+                 <button onClick={() => setShowLayoutModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                 <div>
+                    <h3 className="text-3xl font-bold text-[#051C2C] font-serif mb-2 flex items-center gap-3"><LayoutDashboard className="w-8 h-8 text-amber-500" />Smart Layout Recommendations</h3>
+                    <p className="text-gray-500 text-sm">Based on your content, the AI suggests these professional layouts from the {consultingStyle} library.</p>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {layoutRecommendations.map((rec) => (
+                        <div 
+                            key={rec.id} 
+                            onClick={() => handleApplyLayoutRecommendation(rec)}
+                            className="border-2 border-gray-200 hover:border-amber-500 cursor-pointer p-6 rounded hover:shadow-lg transition-all group bg-gray-50 hover:bg-white flex flex-col"
+                        >
+                            <div className="h-32 bg-gray-200 mb-4 rounded flex items-center justify-center text-gray-400 font-bold uppercase text-xs tracking-widest group-hover:bg-amber-50 group-hover:text-amber-600 transition-colors">
+                                {rec.name} Preview
+                            </div>
+                            <h4 className="font-serif font-bold text-lg text-[#051C2C] mb-2 group-hover:text-amber-700">{rec.name}</h4>
+                            <p className="text-xs text-gray-500 mb-4 flex-1">{rec.description}</p>
+                            <div className="bg-amber-50 p-3 rounded border border-amber-100 text-[10px] text-amber-800 font-medium">
+                                <span className="font-bold uppercase block mb-1 text-amber-600">Why Recommended:</span>
+                                {rec.reason}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="flex justify-end pt-4 border-t border-gray-100">
+                    <button onClick={() => setShowLayoutModal(false)} className="px-6 py-3 border border-gray-300 text-gray-600 font-bold text-xs uppercase tracking-widest hover:bg-gray-50">Cancel</button>
+                </div>
+             </div>
+        </div>
+      )}
+
       {showRegenerateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
              <div className="bg-white max-w-lg w-full shadow-2xl border-l-8 border-[#163E93] p-8 flex flex-col gap-6 relative">
@@ -1421,19 +1661,40 @@ const App: React.FC = () => {
                 <span className="text-[9px] bg-gray-100 px-2 py-1 rounded text-gray-500 font-bold">{outline.length} Slides</span>
             </div>
             <div className="flex-1 overflow-y-auto p-4 space-y-2 pb-32">
-                {(status.stage === 'constructing-deck' || status.stage === 'finished' || status.stage === 'paused' ? slides : outline.map(o => ({ id: o.id, title: o.title, type: o.suggestedSlideType, status: 'draft' }))).map((item: any, idx) => (
+                {(status.stage === 'constructing-deck' || status.stage === 'finished' || status.stage === 'paused' ? slides : outline.map(o => ({ id: o.id, title: o.title, type: o.suggestedSlideType, status: 'draft' })))
+                // FILTER: Hide Master Style Guide ONLY during Outline Review
+                .filter((item: any) => status.stage === 'outline-review' ? (item.slideType !== SlideType.MasterStyleGuide && item.type !== SlideType.MasterStyleGuide) : true)
+                .map((item: any, idx) => {
+                    // Logic to handle "Hidden" slide index offset if we were hiding it
+                    // But now we show it in finished state, so we need robust index handling
+                    
+                    // If we are in 'outline-review', the array is already filtered, so idx 0 is actually Slide 1 (Title).
+                    // If we are in 'finished', the array includes Model Page at 0.
+                    
+                    const isModelPage = (item.slideType === SlideType.MasterStyleGuide || item.type === SlideType.MasterStyleGuide);
+                    const displayIndex = status.stage === 'outline-review' ? idx + 1 : idx; // 1-based for Outline View
+                    const displayLabel = isModelPage ? "Model Page" : `Slide ${displayIndex}`;
+                    
+                    // Click Handler Index:
+                    // In 'outline-review', we filtered 0 out. So idx 0 corresponds to data-array index 1.
+                    // In 'finished', idx 0 is data-array index 0.
+                    const clickIndex = status.stage === 'outline-review' ? idx + 1 : idx;
+
+                    return (
                         <div 
                         key={item.id} 
-                        onClick={() => setCurrentSlideIdx(idx)}
+                        onClick={() => setCurrentSlideIdx(clickIndex)}
                         className={`p-4 border-l-4 transition-all cursor-pointer group relative
-                            ${currentSlideIdx === idx ? 'bg-blue-50 border-[#163E93]' : 'bg-white border-transparent hover:bg-gray-50 hover:border-gray-200'}
+                            ${currentSlideIdx === clickIndex ? 'bg-blue-50 border-[#163E93]' : 'bg-white border-transparent hover:bg-gray-50 hover:border-gray-200'}
                         `}
                         >
                             <div className="flex justify-between items-start mb-1">
-                                <span className={`text-[10px] font-bold uppercase tracking-wider ${currentSlideIdx === idx ? 'text-[#163E93]' : 'text-gray-400'}`}>Slide {idx + 1}</span>
+                                <span className={`text-[10px] font-bold uppercase tracking-wider ${currentSlideIdx === clickIndex ? 'text-[#163E93]' : 'text-gray-400'}`}>
+                                    {displayLabel}
+                                </span>
                                 <span className="text-[9px] text-gray-300 uppercase">{(item.slideType || item.suggestedSlideType || "Generic").split(' ')[0]}</span>
                             </div>
-                            <p className={`text-sm font-serif font-bold leading-tight line-clamp-3 ${currentSlideIdx === idx ? 'text-[#051C2C]' : 'text-gray-500'}`}>{item.actionTitle || item.title}</p>
+                            <p className={`text-sm font-serif font-bold leading-tight line-clamp-3 ${currentSlideIdx === clickIndex ? 'text-[#051C2C]' : 'text-gray-500'}`}>{item.actionTitle || item.title}</p>
                             <div className="flex items-center gap-2 mt-2">
                                 {status.stage !== 'outline-review' && (
                                     item.status === 'generating_text' ? <span className="text-[9px] text-[#163E93] font-bold uppercase flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin"/> Blueprinting</span> : 
@@ -1444,13 +1705,14 @@ const App: React.FC = () => {
                                     item.status === 'error' ? <span className="text-[9px] text-red-500 font-bold uppercase flex items-center gap-1"><AlertCircle className="w-3 h-3"/> Failed</span> : null
                                 )}
                             </div>
-                            {status.stage === 'outline-review' && currentSlideIdx === idx && (
+                            {status.stage === 'outline-review' && currentSlideIdx === clickIndex && (
                                 <button onClick={(e) => { e.stopPropagation(); removeOutlineItem(item.id); }} className="absolute top-2 right-2 text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <X className="w-3 h-3" />
                                 </button>
                             )}
                         </div>
-                ))}
+                    );
+                })}
             </div>
         </div>
 
@@ -1566,6 +1828,8 @@ const App: React.FC = () => {
                                         style={consultingStyle} 
                                         onRegenerateImage={handleFinalSlideRefine}
                                         onRetry={handleRetrySlide}
+                                        onEnforceStyle={handleEnforceMasterStyle}
+                                        onSmartLayout={handleSmartLayoutRecommendation}
                                     />
                                 ) : (
                                     <div className="flex-1 flex flex-col items-center justify-center gap-8 p-12 text-center bg-white">
