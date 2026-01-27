@@ -1490,7 +1490,7 @@ const App: React.FC = () => {
 
   // Workspace View
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 font-sans flex flex-col relative">
+    <div className="h-screen overflow-hidden bg-[#F8FAFC] text-slate-800 font-sans flex flex-col relative">
       
       {showLayoutModal && layoutRecommendations && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
