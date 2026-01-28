@@ -1163,7 +1163,7 @@ const App: React.FC = () => {
                   className="text-xs font-bold text-[#051C2C] uppercase tracking-[0.1em] hover:text-[#163E93] transition-colors flex items-center gap-2"
               >
                   <GraduationCap className="w-4 h-4" />
-                  用户手册
+                  USER MANUAL
               </a>
               <a 
                   href="https://aistudio.google.com/api-keys" 
