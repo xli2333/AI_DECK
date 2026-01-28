@@ -1149,12 +1149,34 @@ const App: React.FC = () => {
 
   // Removed old Fudan view condition
 
-  if (view === 'landing') {
-    return (
-        <div className="flex flex-col items-center justify-center min-h-screen bg-white relative overflow-hidden selection:bg-[#163E93] selection:text-white">
-        <div className="absolute top-0 left-0 w-full h-1.5 bg-[#051C2C]"></div>
-        <div className="absolute bottom-0 right-0 w-1/3 h-full bg-[#F8FAFC] -z-10 skew-x-12 transform origin-bottom-right opacity-60"></div>
-        
+      if (view === 'landing') {
+      return (
+          <div className="flex flex-col items-center justify-center min-h-screen bg-white relative overflow-hidden selection:bg-[#163E93] selection:text-white">
+          <div className="absolute top-0 left-0 w-full h-1.5 bg-[#051C2C]"></div>
+          
+          {/* NAV LINKS */}
+          <div className="absolute top-6 right-8 flex gap-6 z-20">
+              <a 
+                  href="http://www.strategyaimanual.com/" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-xs font-bold text-[#051C2C] uppercase tracking-[0.1em] hover:text-[#163E93] transition-colors flex items-center gap-2"
+              >
+                  <GraduationCap className="w-4 h-4" />
+                  用户手册
+              </a>
+              <a 
+                  href="https://aistudio.google.com/api-keys" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="text-xs font-bold text-[#051C2C] uppercase tracking-[0.1em] hover:text-[#163E93] transition-colors flex items-center gap-2"
+              >
+                  <Key className="w-4 h-4" />
+                  Gemini API Key
+              </a>
+          </div>
+  
+          <div className="absolute bottom-0 right-0 w-1/3 h-full bg-[#F8FAFC] -z-10 skew-x-12 transform origin-bottom-right opacity-60"></div>        
         <div className="max-w-6xl w-full p-8 relative z-10 flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-700">
             {/* STANDARD BRANDING */}
             <h1 className="text-7xl md:text-9xl font-bold text-[#051C2C] mb-8 font-serif tracking-tighter leading-none">
@@ -1323,6 +1345,26 @@ const App: React.FC = () => {
                       <span className="font-serif font-bold text-2xl tracking-tighter text-[#051C2C]">Strategy<span className="text-amber-600">.Iron</span></span>
                       <div className="h-4 w-[1px] bg-gray-300 mx-2"></div>
                       <span className="text-xs font-bold text-gray-400 uppercase tracking-[0.2em]">Remaster Tool</span>
+                  </div>
+                  <div className="flex gap-6">
+                      <a 
+                          href="http://www.strategyaimanual.com/" 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-xs font-bold text-[#051C2C] uppercase tracking-[0.1em] hover:text-amber-600 transition-colors flex items-center gap-2"
+                      >
+                          <GraduationCap className="w-4 h-4" />
+                          用户手册
+                      </a>
+                      <a 
+                          href="https://aistudio.google.com/api-keys" 
+                          target="_blank" 
+                          rel="noopener noreferrer" 
+                          className="text-xs font-bold text-[#051C2C] uppercase tracking-[0.1em] hover:text-amber-600 transition-colors flex items-center gap-2"
+                      >
+                          <Key className="w-4 h-4" />
+                          Gemini API Key
+                      </a>
                   </div>
               </header>
               <div className="container mx-auto px-4 py-8">
@@ -1595,10 +1637,32 @@ const App: React.FC = () => {
       )}
 
       <header className="h-20 border-b border-gray-200 bg-white flex items-center justify-between px-8 shadow-sm z-40 sticky top-0">
-        <div className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity" onClick={() => { if(confirm("Reset project?")) setView('landing'); }}>
-            <span className="font-serif font-bold text-2xl tracking-tighter text-[#051C2C]">Strategy<span className="text-[#163E93]">.AI</span></span>
-            <div className="h-4 w-[1px] bg-gray-300 mx-2"></div>
-            <span className="text-xs font-bold text-gray-400 uppercase tracking-[0.2em]">Workspace</span>
+        <div className="flex items-center">
+            <div className="flex items-center gap-2 cursor-pointer hover:opacity-70 transition-opacity" onClick={() => { if(confirm("Reset project?")) setView('landing'); }}>
+                <span className="font-serif font-bold text-2xl tracking-tighter text-[#051C2C]">Strategy<span className="text-[#163E93]">.AI</span></span>
+                <div className="h-4 w-[1px] bg-gray-300 mx-2"></div>
+                <span className="text-xs font-bold text-gray-400 uppercase tracking-[0.2em]">Workspace</span>
+            </div>
+            <div className="hidden lg:flex items-center gap-6 ml-8">
+                 <a 
+                    href="http://www.strategyaimanual.com/" 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-[#163E93] transition-colors flex items-center gap-1.5"
+                >
+                    <GraduationCap className="w-3 h-3" />
+                    用户手册
+                </a>
+                <a 
+                    href="https://aistudio.google.com/api-keys" 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-[10px] font-bold text-gray-400 uppercase tracking-widest hover:text-[#163E93] transition-colors flex items-center gap-1.5"
+                >
+                    <Key className="w-3 h-3" />
+                    Gemini API Key
+                </a>
+            </div>
         </div>
         
         {/* TOP CONTROL BAR */}
