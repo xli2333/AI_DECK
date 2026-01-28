@@ -630,72 +630,83 @@ const App: React.FC = () => {
       }
   };
 
-  const handleApplyLayoutRecommendation = async (rec: LayoutRecommendation) => {
+  const handleApplyLayoutRecommendation = (rec: LayoutRecommendation) => {
       setShowLayoutModal(false);
       
-      // 1. Update Slide with new Layout Path
-      const currentSlide = slides[currentSlideIdx];
-      updateSlideStatus(currentSlideIdx, { 
-          layoutFilePath: rec.layoutFilePath,
-          status: 'generating_text',
-          currentStep: `Adopting Layout: ${rec.name}...`,
-          imageBase64: undefined
-      });
-
-      try {
-          // 2. Regenerate Slide Content (to fit new layout structure)
-          // We treat this as a "Regenerate Final Slide" call but with the new layout file enforced by the update above.
-          // Note: regenerateFinalSlide reads the current slide object. We need to make sure the state is updated first.
+      // Robustness Fix: Delay state updates to allow Modal unmount to complete.
+      // This prevents "Failed to execute 'insertBefore'" errors in Vercel/Production environments
+      // caused by simultaneous unmounting of the modal and restructuring of the SlideView.
+      setTimeout(async () => {
+          // Use Ref to ensure we have the latest state inside the timeout
+          const currentSlide = slidesRef.current[currentSlideIdx];
           
-          // Force update the slide object in memory for the function call
-          const updatedSlideRef = { ...currentSlide, layoutFilePath: rec.layoutFilePath };
-          
-          const input: AnalysisInput = {};
-          if (filesData.length > 0) input.filesData = filesData.map(f => ({ mimeType: f.mimeType, base64: f.base64 }));
-          if (deckPurpose.trim()) input.text = `PURPOSE: ${deckPurpose}\n\n`;
+          if (!currentSlide) {
+              console.error("Slide not found during layout update");
+              return;
+          }
 
-          // Regenerate Content
-          const newContent = await regenerateFinalSlide(
-              input, 
-              updatedSlideRef, 
-              `Switch to layout: ${rec.name}. Ensure the content fits this structure.`, 
-              slideHistoryMap[currentSlide.id] || [], 
-              consultingStyle, 
-              apiKey, 
-              customStylePrompts
-          );
-
-          updateSlideStatus(currentSlideIdx, { ...newContent, status: 'generating_visual', currentStep: 'Rendering New Layout...' });
-
-          // 3. Regenerate Visual
-          const slideContext = {
-              title: newContent.actionTitle,
-              subtitle: newContent.subtitle || "",
-              keyPoints: newContent.bodyContent
-          };
-
-          const visual = await generateSlideVisual(
-              input, 
-              slideContext, 
-              newContent.visualSpecification.fullImagePrompt, 
-              consultingStyle, 
-              apiKey, 
-              '4K', 
-              undefined, 
-              customStylePrompts
-          );
-          
+          // 1. Update Slide with new Layout Path
           updateSlideStatus(currentSlideIdx, { 
-              imageBase64: visual, 
-              status: 'complete', 
-              currentStep: undefined, 
-              isHighRes: true 
+              layoutFilePath: rec.layoutFilePath,
+              status: 'generating_text',
+              currentStep: `Adopting Layout: ${rec.name}...`,
+              imageBase64: undefined
           });
 
-      } catch (e) {
-          alert("Failed to apply layout: " + (e as Error).message);
-          updateSlideStatus(currentSlideIdx, { status: 'complete', currentStep: undefined });
-      }
+          try {
+              // 2. Regenerate Slide Content (to fit new layout structure)
+              // We treat this as a "Regenerate Final Slide" call but with the new layout file enforced by the update above.
+              
+              // Force update the slide object in memory for the function call
+              const updatedSlideRef = { ...currentSlide, layoutFilePath: rec.layoutFilePath };
+              
+              const input: AnalysisInput = {};
+              if (filesData.length > 0) input.filesData = filesData.map(f => ({ mimeType: f.mimeType, base64: f.base64 }));
+              if (deckPurpose.trim()) input.text = `PURPOSE: ${deckPurpose}\n\n`;
+
+              // Regenerate Content
+              const newContent = await regenerateFinalSlide(
+                  input, 
+                  updatedSlideRef, 
+                  `Switch to layout: ${rec.name}. Ensure the content fits this structure.`, 
+                  slideHistoryMap[currentSlide.id] || [], 
+                  consultingStyle, 
+                  apiKey, 
+                  customStylePrompts
+              );
+
+              updateSlideStatus(currentSlideIdx, { ...newContent, status: 'generating_visual', currentStep: 'Rendering New Layout...' });
+
+              // 3. Regenerate Visual
+              const slideContext = {
+                  title: newContent.actionTitle,
+                  subtitle: newContent.subtitle || "",
+                  keyPoints: newContent.bodyContent
+              };
+
+              const visual = await generateSlideVisual(
+                  input, 
+                  slideContext, 
+                  newContent.visualSpecification.fullImagePrompt, 
+                  consultingStyle, 
+                  apiKey, 
+                  '4K', 
+                  undefined, 
+                  customStylePrompts
+              );
+              
+              updateSlideStatus(currentSlideIdx, { 
+                  imageBase64: visual, 
+                  status: 'complete', 
+                  currentStep: undefined, 
+                  isHighRes: true 
+              });
+
+          } catch (e) {
+              alert("Failed to apply layout: " + (e as Error).message);
+              updateSlideStatus(currentSlideIdx, { status: 'complete', currentStep: undefined });
+          }
+      }, 100);
   };
 
   const handleSlideModify = async () => {
