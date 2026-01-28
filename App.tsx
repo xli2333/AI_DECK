@@ -1895,6 +1895,7 @@ const App: React.FC = () => {
                                         onRetry={handleRetrySlide}
                                         onEnforceStyle={handleEnforceMasterStyle}
                                         onSmartLayout={handleSmartLayoutRecommendation}
+                                        isRecommendingLayout={isRecommendingLayout}
                                     />
                                 ) : (
                                     <div className="flex-1 flex flex-col items-center justify-center gap-8 p-12 text-center bg-white">

@@ -10,9 +10,10 @@ interface SlideViewProps {
   onRetry?: () => void;
   onEnforceStyle?: () => void; // NEW: Callback for Master Style Enforcement
   onSmartLayout?: () => void; // NEW: Callback for Smart Layout Recommendations
+  isRecommendingLayout?: boolean; // NEW: Loading state for layout recommendation
 }
 
-const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry, onEnforceStyle, onSmartLayout }) => {
+const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry, onEnforceStyle, onSmartLayout, isRecommendingLayout }) => {
   // Define style-specific colors
   const getColors = () => {
       switch (style) {
@@ -226,10 +227,15 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                     {onSmartLayout && (
                         <button 
                             onClick={onSmartLayout}
-                            className="bg-[#051C2C]/90 hover:bg-[#051C2C] text-white px-4 py-2 rounded shadow-lg border border-gray-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
+                            disabled={isRecommendingLayout}
+                            className={`bg-[#051C2C]/90 hover:bg-[#051C2C] text-white px-4 py-2 rounded shadow-lg border border-gray-600 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 transition-colors ${isRecommendingLayout ? 'opacity-75 cursor-wait' : ''}`}
                         >
-                            <LayoutDashboard className="w-3 h-3 text-amber-400" />
-                            Smart Layout
+                            {isRecommendingLayout ? (
+                                <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                            ) : (
+                                <LayoutDashboard className="w-3 h-3 text-amber-400" />
+                            )}
+                            {isRecommendingLayout ? 'Analyzing...' : 'Smart Layout'}
                         </button>
                     )}
 
