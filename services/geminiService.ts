@@ -206,7 +206,7 @@ export const extractCustomStyle = async (
                 contents: { parts },
                 config: { responseMimeType: 'application/json' }
             }),
-            60000, "Extract Custom Style"
+            180000, "Extract Custom Style"
         ),
         1, "Extract Custom Style"
     );
@@ -288,7 +288,7 @@ export const getLayoutRecommendations = async (
                 contents: { parts: [{ text: prompt }] },
                 config: { responseMimeType: 'application/json' }
             }),
-            90000, "Get Layout Recommendations"
+            180000, "Get Layout Recommendations"
         ),
         1, "Get Layout Recommendations"
     );
@@ -467,7 +467,7 @@ export const generateOutline = async (
                 contents: { parts: prepareParts(input, prompt) },
                 config: { temperature: 0.2, responseMimeType: 'application/json' }
             }),
-            60000, "Outline Generation" // Increased timeout for Pro model
+            180000, "Outline Generation" // Increased timeout for Pro model
         ),
         2, "Generate Outline"
     );
@@ -559,7 +559,7 @@ const generateMasterStyleSlide = async (
                 contents: { parts: [{ text: prompt }] },
                 config: { responseMimeType: 'application/json' }
             }),
-            30000, "Generate Master Style"
+            180000, "Generate Master Style"
         ),
         2, "Generate Master Style"
     );
@@ -730,7 +730,7 @@ export const generateSlideContent = async (
                 contents: { parts: prepareParts(input, prompt) },
                 config: { temperature: 0.3, responseMimeType: 'application/json' }
             }),
-            60000, "Slide Text Generation" // Increased timeout for Pro model
+            180000, "Slide Text Generation" // Increased timeout for Pro model
         ),
         2, "Generate Slide Content"
     );
@@ -850,7 +850,7 @@ export const generateSlideVisual = async (
                     }
                 }
             }),
-            120000, `Generate Slide Visual (${resolution})` // Increased timeout to 120s for 4K
+            180000, `Generate Slide Visual (${resolution})` // Increased timeout to 180s
         ),
         1, `Generate Slide Visual (${resolution})`
     );
@@ -1096,7 +1096,7 @@ export const upscaleSlideImage = async (base64Image: string, prompt: string, sty
                     }
                 }
             }),
-            90000, "Upscale Slide Image"
+            180000, "Upscale Slide Image"
         ),
         1, "Upscale Slide Image"
     );
@@ -1178,7 +1178,7 @@ export const modifySlideImage = async (
                     } 
                 }
             }),
-            90000, "Modify Slide Image" // Increased timeout for 4K
+            180000, "Modify Slide Image" // Increased timeout
         ),
         1, "Modify Slide Image"
     );

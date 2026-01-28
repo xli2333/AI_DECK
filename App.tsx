@@ -638,7 +638,8 @@ const App: React.FC = () => {
       updateSlideStatus(currentSlideIdx, { 
           layoutFilePath: rec.layoutFilePath,
           status: 'generating_text',
-          currentStep: `Adopting Layout: ${rec.name}...`
+          currentStep: `Adopting Layout: ${rec.name}...`,
+          imageBase64: undefined
       });
 
       try {
