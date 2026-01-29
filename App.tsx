@@ -50,6 +50,10 @@ const App: React.FC = () => {
   const [isExporting, setIsExporting] = useState(false);
   const [isUpscaling, setIsUpscaling] = useState(false);
   
+  // Export & Compression State
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [isCompressing, setIsCompressing] = useState(false);
+  
   // Global Visual Edit State
   const [showGlobalVisualEditModal, setShowGlobalVisualEditModal] = useState(false);
   const [globalVisualEditInstruction, setGlobalVisualEditInstruction] = useState('');
@@ -1045,9 +1049,44 @@ const App: React.FC = () => {
       }
   };
 
-  const handleExportPDF = () => {
+  const compressImage = (base64Str: string, maxWidth = 3840, quality = 0.96): Promise<string> => {
+      return new Promise((resolve) => {
+          const img = new Image();
+          img.src = base64Str;
+          img.onload = () => {
+              const canvas = document.createElement('canvas');
+              let width = img.width;
+              let height = img.height;
+
+              // Calculate new dimensions (Keep aspect ratio)
+              if (width > maxWidth) {
+                  height = (height * maxWidth) / width;
+                  width = maxWidth;
+              }
+
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) { resolve(base64Str); return; } 
+              
+              // White background to prevent transparency issues in JPEG
+              ctx.fillStyle = '#FFFFFF';
+              ctx.fillRect(0, 0, width, height);
+              
+              ctx.drawImage(img, 0, 0, width, height);
+              // Export as JPEG for high compression
+              resolve(canvas.toDataURL('image/jpeg', quality));
+          };
+          img.onerror = () => resolve(base64Str); 
+      });
+  };
+
+  const handleExportPDF = async (mode: 'original' | 'compressed') => {
       if (slides.length === 0) return;
       setIsExporting(true);
+      if (mode === 'compressed') setIsCompressing(true);
+      setShowExportModal(false);
+
       try {
           const doc = new jsPDF({
               orientation: 'landscape',
@@ -1064,21 +1103,32 @@ const App: React.FC = () => {
               return;
           }
 
-          exportSlides.forEach((slide, index) => {
-              if (index > 0) doc.addPage();
+          for (let i = 0; i < exportSlides.length; i++) {
+              const slide = exportSlides[i];
+              if (i > 0) doc.addPage();
+              
               if (slide.imageBase64) {
-                  doc.addImage(slide.imageBase64, 'PNG', 0, 0, 1920, 1080, '', 'FAST');
+                  let finalImage = slide.imageBase64;
+                  
+                  if (mode === 'compressed') {
+                      // Compress Image on the fly
+                      finalImage = await compressImage(slide.imageBase64);
+                  }
+
+                  doc.addImage(finalImage, 'PNG', 0, 0, 1920, 1080, '', 'FAST');
               } else {
                   doc.text(slide.actionTitle || "Untitled", 100, 200);
               }
-          });
+          }
 
-          doc.save(`Strategy_AI_${new Date().toISOString().slice(0, 10)}.pdf`);
+          const suffix = mode === 'compressed' ? '_EmailReady' : '_HighRes';
+          doc.save(`Strategy_AI_${new Date().toISOString().slice(0, 10)}${suffix}.pdf`);
       } catch (e) {
           console.error("PDF Export Failed", e);
           alert("Failed to export PDF.");
       } finally {
           setIsExporting(false);
+          setIsCompressing(false);
       }
   };
 
@@ -1582,6 +1632,42 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {showExportModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+             <div className="bg-white max-w-md w-full shadow-2xl border-l-8 border-[#051C2C] p-8 flex flex-col gap-6 relative">
+                 <button onClick={() => setShowExportModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
+                 <div>
+                    <h3 className="text-2xl font-bold text-[#051C2C] font-serif mb-2 flex items-center gap-3"><Download className="w-6 h-6 text-[#051C2C]" />Export Options</h3>
+                    <p className="text-gray-500 text-sm">Select the quality and file size for your PDF.</p>
+                </div>
+                
+                <div className="flex flex-col gap-4">
+                    <button 
+                        onClick={() => handleExportPDF('original')}
+                        className="w-full p-4 border-2 border-[#051C2C] bg-[#051C2C] text-white hover:bg-black transition-all group flex items-center justify-between"
+                    >
+                        <div className="text-left">
+                            <div className="font-bold text-sm uppercase tracking-wider">Original Quality (4K)</div>
+                            <div className="text-[10px] opacity-70">Best for printing and big screens. Large file size.</div>
+                        </div>
+                        <Monitor className="w-5 h-5" />
+                    </button>
+
+                    <button 
+                        onClick={() => handleExportPDF('compressed')}
+                        className="w-full p-4 border-2 border-gray-200 hover:border-[#163E93] hover:bg-blue-50 transition-all group flex items-center justify-between"
+                    >
+                        <div className="text-left">
+                            <div className="font-bold text-sm uppercase tracking-wider text-[#051C2C]">Email Ready (Compressed)</div>
+                            <div className="text-[10px] text-gray-500">Optimized for sharing. ~80% smaller file size.</div>
+                        </div>
+                        <Send className="w-5 h-5 text-gray-400 group-hover:text-[#163E93]" />
+                    </button>
+                </div>
+             </div>
+        </div>
+      )}
+
       {showRegenerateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
              <div className="bg-white max-w-lg w-full shadow-2xl border-l-8 border-[#163E93] p-8 flex flex-col gap-6 relative">
@@ -1723,8 +1809,8 @@ const App: React.FC = () => {
                              <button onClick={handleUpscaleDeck} disabled={isUpscaling || isExporting || status.stage === 'paused' || isGlobalVisualEditing} className="bg-white text-[#163E93] border border-[#163E93] hover:bg-blue-50 px-6 py-3 rounded-none font-bold text-xs uppercase tracking-[0.15em] shadow-sm flex items-center gap-3 transition-all disabled:opacity-50">
                                  {isUpscaling ? <Loader2 className="w-4 h-4 animate-spin" /> : <Monitor className="w-4 h-4" />} {isUpscaling ? 'Upscale (4K)' : 'Upscale (4K)'}
                              </button>
-                             <button onClick={handleExportPDF} disabled={isExporting || isUpscaling || status.stage === 'paused' || isGlobalVisualEditing} className="bg-[#051C2C] hover:bg-black text-white px-8 py-3 rounded-none font-bold text-xs uppercase tracking-[0.15em] shadow-lg flex items-center gap-3 transition-all disabled:opacity-50">
-                                 {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} {isExporting ? 'Exporting...' : 'Export PDF'}
+                             <button onClick={() => setShowExportModal(true)} disabled={isExporting || isUpscaling || status.stage === 'paused' || isGlobalVisualEditing} className="bg-[#051C2C] hover:bg-black text-white px-8 py-3 rounded-none font-bold text-xs uppercase tracking-[0.15em] shadow-lg flex items-center gap-3 transition-all disabled:opacity-50">
+                                 {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} {isExporting ? (isCompressing ? 'Compressing...' : 'Exporting...') : 'Export PDF'}
                              </button>                </>
             )}
         </div>
