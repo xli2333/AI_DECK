@@ -743,12 +743,13 @@ const App: React.FC = () => {
           }
 
           // 1. Update Slide with new Layout Path
-          updateSlideStatus(currentSlideIdx, { 
+          // Use updateSlideWithHistory to save the BEFORE state (Undo Point)
+          updateSlideWithHistory(currentSlideIdx, { 
               layoutFilePath: rec.layoutFilePath,
               status: 'generating_text',
               currentStep: `Adopting Layout: ${rec.name}...`,
               imageBase64: undefined
-          });
+          }, true); // forceSnapshot = true
 
           try {
               // 2. Regenerate Slide Content (to fit new layout structure)
@@ -1251,11 +1252,11 @@ const App: React.FC = () => {
 
       const currentSlide = slides[currentSlideIdx];
       
-      // 2. Set Status to Regenerating
-      updateSlideStatus(currentSlideIdx, { 
+      // 2. Set Status to Regenerating - SNAPSHOT HERE
+      updateSlideWithHistory(currentSlideIdx, { 
           status: 'generating_visual', 
           currentStep: 'Applying Master Style Rules...' 
-      });
+      }, true); // forceSnapshot = true
 
       try {
           // 3. Construct Context
