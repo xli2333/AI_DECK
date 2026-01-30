@@ -143,7 +143,7 @@ export const extractCustomStyle = async (
     fileMime: string | null, 
     description: string, 
     apiKey: string
-): Promise<{ core: string, visual: string }> => {
+): Promise<{ core: string, visual: string, palette: any }> => {
     const client = getClient(apiKey);
     
     const extractionPrompt = `
@@ -152,44 +152,45 @@ export const extractCustomStyle = async (
     # CONTEXT: ${description || "Professional Consulting Deck"}
 
     # OBJECTIVE:
-    Create TWO distinct system prompts that capture the essence of this style.
+    Create specific instructions to replicate this style, AND extract a precise 6-color palette.
 
     ## 1. CORE_PROMPT (The Logic & Structure)
     Structure this prompt exactly like a "Persona Definition" for a Consultant.
-    Must include these specific sections:
     - **Role:** The specific persona (e.g., "Senior Project Leader").
-    - **Philosophy:** Core logical values (e.g., "Insight-Led", "Hypothesis-Driven").
-    - **Visual Identity (Text):** Color Palette (Hex codes), Typography hierarchy rules.
-    - **Narrative Architecture:** How to structure titles (Action Titles) and arguments.
-    - **Chart Library:** Strategic frameworks (Matrices, Waterfalls) specific to this style.
-    - **Tone:** Vocabulary and writing style (e.g., "Unlock value", "Granularity").
-    - **Output Specification:** Define the expected structure for a slide (Headline, Visual Spec, Body, Footer).
+    - **Philosophy:** Core logical values.
+    - **Tone:** Vocabulary and writing style.
 
     ## 2. VISUAL_PROMPT (The Design & Rendering)
     Structure this prompt for a "Visual Designer Agent".
-    Must include:
     - **Role:** "Slide Architect".
-    - **Visual Identity:** STRICT color codes, margin rules, font choices.
-    - **Layout Strategy:** Grid systems (Split, Columns, Matrix).
-    - **Visual Engine:** Detailed descriptions of how charts should look (e.g., "No gridlines", "High contrast").
-    
-    # REFERENCE STRUCTURE (Example of tone/detail expected):
-    """
-    # Role: The BCG Senior Project Leader
-    **Identity:** You are not just making slides; you are crafting a Strategic Narrative.
-    **Visual Identity:** Use the Green Palette (#00291C).
-    **Narrative Architecture:** Action Titles must be complete sentences.
-    ...
-    """
+    - **Visual Identity:** STRICT rules for layout and density.
+
+    ## 3. PALETTE (The DNA)
+    Extract the 6 most critical HEX colors from the image/description.
+    - **primary**: The dominant brand color (e.g., logo color).
+    - **secondary**: The supporting color (e.g., header bars).
+    - **background**: Usually #FFFFFF or a dark theme color.
+    - **text**: Main text color (usually #000000 or #333333).
+    - **accents**: An array of 2 distinct colors for charts/highlights.
 
     # INPUT DATA SOURCE:
     ${fileBase64 ? "Reference the uploaded file image/document for visual evidence." : "Use the user description to infer the style."}
 
     # OUTPUT FORMAT (JSON ONLY):
-    Return a single valid JSON object.
+    Return a single valid JSON object. Do not wrap in Markdown code blocks.
+    
+    CRITICAL: Ensure all strings are properly escaped. If the "core" or "visual" prompts contain newlines, use "\\n". If they contain quotes, use "\\"".
+    
     {
-      "core": "MARKDOWN_STRING",
-      "visual": "MARKDOWN_STRING"
+      "core": "Full prompt text here (escaped)",
+      "visual": "Full prompt text here (escaped)",
+      "palette": {
+        "primary": "#HEX",
+        "secondary": "#HEX",
+        "background": "#HEX",
+        "text": "#HEX",
+        "accents": ["#HEX", "#HEX"]
+      }
     }
     `;
 
@@ -211,14 +212,28 @@ export const extractCustomStyle = async (
         1, "Extract Custom Style"
     );
 
-    const jsonStr = extractJson(response.text || "{}");
-    const data = JSON.parse(jsonStr);
+    const textRaw = response.text || "{}";
+    let data;
+    try {
+        const jsonStr = extractJson(textRaw);
+        data = JSON.parse(jsonStr);
+    } catch (e) {
+        console.error("JSON Parse Error in extractCustomStyle. Raw Text:", textRaw);
+        // Attempt a secondary cleanup for common newlines in strings issue
+        try {
+             // Basic attempt to fix unescaped newlines inside JSON strings? 
+             // Ideally we just fail and ask user to retry, but logging is key.
+             throw new Error(`Invalid JSON received from AI. Details: ${(e as Error).message}`);
+        } catch (ignored) {
+             throw e;
+        }
+    }
     
-    if (!data.core || !data.visual) {
-        throw new Error("Failed to extract style structure from the input.");
+    if (!data.core || !data.visual || !data.palette) {
+        throw new Error("Failed to extract style structure or palette from the input.");
     }
 
-    return { core: data.core, visual: data.visual };
+    return { core: data.core, visual: data.visual, palette: data.palette };
 };
 
 
@@ -238,11 +253,12 @@ export const getLayoutRecommendations = async (
     else if (style === 'mckinsey') indexFile = 'Prompts/McKinsey Prompts/McKinsey_Prompt_Index.md';
     else if (style === 'bain') indexFile = 'Prompts/Bain Prompts/Bain_Instruction_Index.md';
     else if (style === 'internet') indexFile = 'Prompts/Internet Prompts/Internet_Prompts_Index.md';
+    else if (style === 'custom') indexFile = 'Prompts/300 Prompts/Prompt_Index.md'; // LINK TO 300 PROMPTS
     
     let indexContent = "No specific index available. Recommend generic charts.";
     if (indexFile) {
         try {
-            indexContent = await fetchLocalPrompt(indexFile);
+            indexContent = await fetchLocalPrompt(indexFile, style);
             console.log(`[Smart Layout] Loaded Index File: ${indexFile} (Length: ${indexContent.length} chars)`);
         } catch (e) {
             console.warn("Could not load index file for recommendations:", e);
@@ -298,75 +314,55 @@ export const getLayoutRecommendations = async (
 };
 
 // --- HELPER: Fetch Local Prompt File ---
-const fetchLocalPrompt = async (filePath: string): Promise<string> => {
+const fetchLocalPrompt = async (filePath: string, style?: ConsultingStyle): Promise<string> => {
     try {
-        // --- PATH MAPPING LOGIC (Robustness for BCG, McKinsey, Bain) ---
-        let finalPath = filePath;
-        
-        // 1. Normalize slashes first
-        finalPath = finalPath.replace(/\\/g, '/');
+        let finalPath = filePath.replace(/\\/g, '/'); // Normalize slashes
 
-        // 2. Robust Prefix Handling (Regex for Precision)
-        
-        // BCG Logic
-        if (/^BCG Prompts/i.test(finalPath)) {
-             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
-        } else if (/^BCG Prompt/i.test(finalPath)) {
-             finalPath = finalPath.replace(/^BCG Prompt/i, 'Prompts/BCG Prompts');
-        }
+        // --- STRICT STYLE-BASED ROUTING (Robust & Exclusive) ---
+        if (style) {
+            // Remove any existing "Prompts/X Prompts/" prefix to get the raw relative path
+            // This prevents double-prefixing (e.g., "Prompts/BCG Prompts/Prompts/BCG Prompts/...")
+            const cleanPath = finalPath
+                .replace(/^Prompts\/300 Prompts\//i, '')
+                .replace(/^Prompts\/BCG Prompts\//i, '')
+                .replace(/^Prompts\/McKinsey Prompts\//i, '')
+                .replace(/^Prompts\/Bain Prompts\//i, '')
+                .replace(/^Prompts\/Internet Prompts\//i, '')
+                // Also clean specific "Prompts/" prefix if it exists alone
+                .replace(/^Prompts\//i, '');
 
-        // McKinsey Logic
-        else if (/^McKinsey Prompts/i.test(finalPath)) {
-             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
-        } else if (/^McKinsey Prompt/i.test(finalPath)) {
-             finalPath = finalPath.replace(/^McKinsey Prompt/i, 'Prompts/McKinsey Prompts');
-        }
-
-        // Bain Logic
-        else if (/^Bain Prompts/i.test(finalPath)) {
-             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
-        } else if (/^Bain Prompt/i.test(finalPath)) {
-             finalPath = finalPath.replace(/^Bain Prompt/i, 'Prompts/Bain Prompts');
-        }
-
-        // Internet Style Logic
-        else if (/^Internet Prompts/i.test(finalPath)) {
-             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
-        }
-
-        // --- SPECIAL CASE: Bain Index Path Redirection ---
-        // Bain index often points to "Prompts/Data Charts/..." missing the "Bain Prompts" subfolder.
-        const bainCategories = ['Data Charts', 'Conceptual Layouts', 'Text and Structure'];
-        for (const cat of bainCategories) {
-            if (finalPath.startsWith(`Prompts/${cat}`)) {
-                finalPath = finalPath.replace(`Prompts/${cat}`, `Prompts/Bain Prompts/${cat}`);
-                break;
+            switch (style) {
+                case 'custom':
+                    finalPath = `Prompts/300 Prompts/${cleanPath}`;
+                    break;
+                case 'bcg':
+                    finalPath = `Prompts/BCG Prompts/${cleanPath}`;
+                    break;
+                case 'mckinsey':
+                    finalPath = `Prompts/McKinsey Prompts/${cleanPath}`;
+                    break;
+                case 'bain':
+                    finalPath = `Prompts/Bain Prompts/${cleanPath}`;
+                    break;
+                case 'internet':
+                    finalPath = `Prompts/Internet Prompts/${cleanPath}`;
+                    break;
             }
+        } 
+        // Fallback for calls without style (should use existing logic or be warned)
+        else {
+             if (!finalPath.startsWith('Prompts/')) finalPath = 'Prompts/' + finalPath;
         }
 
-        // --- SPECIAL CASE: Internet Index Path Redirection ---
-        // Internet index uses relative paths starting with Chinese category names
-        const internetCategories = [
-            '对比与关系图解', '封面与目录结构', '流程计划与执行', 
-            '数据看板与图表', '战略与商业模型', '组织与人员介绍'
-        ];
-        for (const cat of internetCategories) {
-            // Case 1: Starts with category directly (from Index)
-            if (finalPath.startsWith(cat)) {
-                finalPath = `Prompts/Internet Prompts/${finalPath}`;
-                break;
-            }
-            // Case 2: Starts with Prompts/Category (User typo?)
-            if (finalPath.startsWith(`Prompts/${cat}`)) {
-                finalPath = finalPath.replace(`Prompts/${cat}`, `Prompts/Internet Prompts/${cat}`);
-                break;
-            }
-        }
+        // --- SPECIAL CASE: Bain Index often points to "Data Charts/..." without Style Folder ---
+        // (Handled by the strict routing above now, assuming cleanPath works well)
 
-        // 3. Normalize slashes again (in case of replacements)
-        finalPath = finalPath.replace(/\\/g, '/');
+        // --- SPECIAL CASE: Internet Index uses Chinese Category names directly ---
+        // If we are in Internet style, we handled it. 
+        // But if the "cleanPath" itself started with a Chinese category, it's fine.
 
-        console.log(`[Gemini] Requesting prompt file: ${finalPath} (Original: ${filePath})`);
+        // Log the final decision
+        console.log(`[STYLE ROUTER] Style: ${style || 'None'} | Loading: ${finalPath}`);
         
         const response = await fetch('/api/read-file', {
             method: 'POST',
@@ -395,7 +391,7 @@ export const generateOutline = async (
     input: AnalysisInput, 
     style: ConsultingStyle, 
     apiKey: string,
-    customPrompts?: { core: string, visual: string }
+    customPrompts?: { core: string, visual: string, palette?: any }
 ): Promise<OutlineItem[]> => {
     validateAnalysisInput(input);
     const client = getClient(apiKey);
@@ -409,9 +405,10 @@ export const generateOutline = async (
     else if (style === 'mckinsey') indexFile = 'Prompts/McKinsey Prompts/McKinsey_Prompt_Index.md';
     else if (style === 'bain') indexFile = 'Prompts/Bain Prompts/Bain_Instruction_Index.md';
     else if (style === 'internet') indexFile = 'Prompts/Internet Prompts/Internet_Prompts_Index.md';
+    else if (style === 'custom') indexFile = 'Prompts/300 Prompts/Prompt_Index.md'; // LINK TO 300 PROMPTS
 
     if (indexFile) {
-        const indexContent = await fetchLocalPrompt(indexFile);
+        const indexContent = await fetchLocalPrompt(indexFile, style);
         if (indexContent) {
             dynamicContext = `
             # ${style.toUpperCase()} LAYOUT INDEX (MANDATORY REFERENCE)
@@ -594,8 +591,9 @@ export const generateSlideContent = async (
     style: ConsultingStyle, 
     apiKey: string,
     globalInstructions?: string,
-    customPrompts?: { core: string, visual: string },
-    masterStyleConfig?: MasterStyleConfig // NEW: Pass the Master Style
+    customPrompts?: { core: string, visual: string, palette?: any },
+    masterStyleConfig?: MasterStyleConfig, // NEW: Pass the Master Style
+    aspectRatio: '16:9' | '4:3' = '16:9' // NEW: Aspect Ratio
 ): Promise<SlideData> => {
     // --- NEW: MASTER STYLE INTERCEPT ---
     if (outlineItem.suggestedSlideType === SlideType.MasterStyleGuide || outlineItem.title === "Master Style Guide") {
@@ -604,6 +602,16 @@ export const generateSlideContent = async (
 
     const client = getClient(apiKey);
     let { constructionPrompt } = getSystemPrompts(style, customPrompts);
+
+    // --- ASPECT RATIO INJECTION ---
+    if (aspectRatio === '4:3') {
+        constructionPrompt += `
+        # CANVAS FORMAT UPDATE: 4:3 (STANDARD)
+        The user has selected a 4:3 aspect ratio (Squarish).
+        - **Layout Density**: You have LESS horizontal space. Avoid wide, 4-column layouts. Prefer 2x2 Grids or 3-column maximum.
+        - **Verticality**: You have MORE vertical space relative to width. Use it for deeper lists or taller charts.
+        `;
+    }
 
     // --- NEW: INJECT MASTER STYLE ---
     if (masterStyleConfig) {
@@ -620,9 +628,29 @@ export const generateSlideContent = async (
         `;
     }
 
+    // --- NEW: CUSTOM STYLE PALETTE OVERRIDE (ROBUST REPLACEMENT) ---
+    if (style === 'custom' && customPrompts?.palette) {
+        const p = customPrompts.palette;
+        constructionPrompt += `
+        
+        # 🔥🔥🔥 MANDATORY COLOR OVERRIDE (HIGHEST PRIORITY) 🔥🔥🔥
+        You are using a specific Layout Template (potentially from 300 Prompts), BUT you MUST IGNORE any color instructions inside that template.
+        
+        You MUST use this CUSTOM PALETTE for all elements:
+        - **PRIMARY COLOR** (Headlines, Key Data): ${p.primary}
+        - **SECONDARY COLOR** (Subtitles, Accents): ${p.secondary}
+        - **BACKGROUND**: ${p.background}
+        - **TEXT**: ${p.text}
+        - **CHARTS/GRAPHS**: Use this sequence: ${JSON.stringify(p.accents)}
+        
+        **RULE:** If the template says "Use Green for Growth", you MUST replace "Green" with "${p.primary}" or one of the accent colors.
+        **DO NOT USE DEFAULT COLORS.**
+        `;
+    }
+
     // --- NEW: DYNAMIC LAYOUT LOADING ---
     if (outlineItem.layoutFilePath) {
-        const specificLayoutInstructions = await fetchLocalPrompt(outlineItem.layoutFilePath);
+        const specificLayoutInstructions = await fetchLocalPrompt(outlineItem.layoutFilePath, style);
         if (specificLayoutInstructions) {
             console.log(`[Gemini] Loaded specific layout for slide: ${outlineItem.layoutFilePath}`);
             // We append the specific instructions to the core prompt.
@@ -771,8 +799,10 @@ export const generateSlideVisual = async (
     apiKey: string,
     resolution: '1K' | '4K' = '4K', // DEFAULT TO 4K FOR CHINESE TEXT CLARITY
     globalInstructions?: string,
-    customPrompts?: { core: string, visual: string },
-    referenceImageBase64?: string // <--- NEW OPTIONAL ARGUMENT
+    customPrompts?: { core: string, visual: string, palette?: any },
+    referenceImageBase64?: string, // <--- NEW OPTIONAL ARGUMENT
+    aspectRatio: '16:9' | '4:3' = '16:9', // NEW: Aspect Ratio
+    masterStyleConfig?: MasterStyleConfig // <--- NEW: Enforce Master Style
 ): Promise<string> => {
     const client = getClient(apiKey);
     const { imagePrompt } = getSystemPrompts(style, customPrompts);
@@ -782,6 +812,20 @@ export const generateSlideVisual = async (
     # SYSTEM IDENTITY (HIGHEST PRIORITY)
     ${imagePrompt}
     `;
+
+    // --- NEW: MASTER STYLE ENFORCEMENT ---
+    if (masterStyleConfig) {
+        finalPrompt += `
+        # 🎨 MASTER VISUAL STYLE (STRICT ENFORCEMENT)
+        You must strictly adhere to the following design system. Do not deviate.
+        
+        - **Background Color**: ${masterStyleConfig.backgroundColor}
+        - **Primary Brand Color**: ${masterStyleConfig.colorPalette.primary}
+        - **Secondary/Accent**: ${masterStyleConfig.colorPalette.secondary}
+        - **Chart Colors (Sequence)**: ${JSON.stringify(masterStyleConfig.colorPalette.chartColors)}
+        - **Typography**: Titles should feel like "${masterStyleConfig.typography.title.fontFamily}", Body like "${masterStyleConfig.typography.bodyL1.fontFamily}".
+        `;
+    }
 
     // DIRECT INJECTION FOR NANO BANANA PRO (TOP PRIORITY)
     if (globalInstructions && globalInstructions.trim().length > 0) {
@@ -845,7 +889,7 @@ export const generateSlideVisual = async (
                 contents: { parts },
                 config: {
                     imageConfig: {
-                         aspectRatio: '16:9',
+                         aspectRatio: aspectRatio, // DYNAMIC ASPECT RATIO
                          imageSize: resolution // '1K' or '4K'
                     }
                 }
@@ -874,7 +918,7 @@ export const refineOutline = async (
     history: string[],
     style: ConsultingStyle, 
     apiKey: string,
-    customPrompts?: { core: string, visual: string }
+    customPrompts?: { core: string, visual: string, palette?: any }
 ): Promise<OutlineItem[]> => {
     const client = getClient(apiKey);
     const { outlineRefinePrompt } = getSystemPrompts(style, customPrompts);
@@ -887,9 +931,10 @@ export const refineOutline = async (
     else if (style === 'mckinsey') indexFile = 'Prompts/McKinsey Prompts/McKinsey_Prompt_Index.md';
     else if (style === 'bain') indexFile = 'Prompts/Bain Prompts/Bain_Instruction_Index.md';
     else if (style === 'internet') indexFile = 'Prompts/Internet Prompts/Internet_Prompts_Index.md';
+    else if (style === 'custom') indexFile = 'Prompts/300 Prompts/Prompt_Index.md'; // LINK TO 300 PROMPTS
 
     if (indexFile) {
-        const indexContent = await fetchLocalPrompt(indexFile);
+        const indexContent = await fetchLocalPrompt(indexFile, style);
         if (indexContent) {
             dynamicContext = `
             # ${style.toUpperCase()} LAYOUT INDEX (MANDATORY REFERENCE)
@@ -952,7 +997,7 @@ export const refineSpecificSlide = async (
     history: string[],
     style: ConsultingStyle, 
     apiKey: string,
-    customPrompts?: { core: string, visual: string }
+    customPrompts?: { core: string, visual: string, palette?: any }
 ): Promise<OutlineItem> => {
     const client = getClient(apiKey);
     const { slideRefinePrompt } = getSystemPrompts(style, customPrompts);
@@ -1005,10 +1050,29 @@ export const regenerateFinalSlide = async (
     history: string[],
     style: ConsultingStyle, 
     apiKey: string,
-    customPrompts?: { core: string, visual: string }
+    customPrompts?: { core: string, visual: string, palette?: any }
 ): Promise<SlideData> => {
     const client = getClient(apiKey);
     let { constructionPrompt } = getSystemPrompts(style, customPrompts);
+
+    // --- NEW: CUSTOM STYLE PALETTE OVERRIDE (ROBUST REPLACEMENT) ---
+    if (style === 'custom' && customPrompts?.palette) {
+        const p = customPrompts.palette;
+        constructionPrompt += `
+        
+        # 🔥🔥🔥 MANDATORY COLOR OVERRIDE (HIGHEST PRIORITY) 🔥🔥🔥
+        You are modifying a slide, BUT you MUST IGNORE any color instructions inside the template.
+        
+        You MUST use this CUSTOM PALETTE for all elements:
+        - **PRIMARY COLOR** (Headlines, Key Data): ${p.primary}
+        - **SECONDARY COLOR** (Subtitles, Accents): ${p.secondary}
+        - **BACKGROUND**: ${p.background}
+        - **TEXT**: ${p.text}
+        - **CHARTS/GRAPHS**: Use this sequence: ${JSON.stringify(p.accents)}
+        
+        **RULE:** If the previous prompt mentions specific colors, OVERWRITE them with these new ones.
+        `;
+    }
 
     const historyText = history.length > 0 
         ? history.map((h, i) => `Step ${i+1}: ${h}`).join('\n')

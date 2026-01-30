@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { SlideData, ConsultingStyle, SlideType } from '../types';
+import { SlideData, ConsultingStyle, SlideType, AspectRatio } from '../types';
 import { Loader2, AlertCircle, Sparkles, Monitor, Palette, FileText, Type, LayoutDashboard } from 'lucide-react';
 
 interface SlideViewProps {
@@ -11,9 +11,10 @@ interface SlideViewProps {
   onEnforceStyle?: () => void; // NEW: Callback for Master Style Enforcement
   onSmartLayout?: () => void; // NEW: Callback for Smart Layout Recommendations
   isRecommendingLayout?: boolean; // NEW: Loading state for layout recommendation
+  aspectRatio: AspectRatio; // NEW: Dynamic Aspect Ratio
 }
 
-const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry, onEnforceStyle, onSmartLayout, isRecommendingLayout }) => {
+const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry, onEnforceStyle, onSmartLayout, isRecommendingLayout, aspectRatio }) => {
   // Define style-specific colors
   const getColors = () => {
       switch (style) {
@@ -25,13 +26,16 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
   };
   const colors = getColors();
 
+  // Dynamic Aspect Ratio Class
+  const aspectClass = aspectRatio === '16:9' ? 'aspect-[16/9]' : 'aspect-[4/3]';
+
   // --- NEW: MASTER STYLE GUIDE RENDERING (Code-Based) ---
   if ((slide.slideType === SlideType.MasterStyleGuide || slide.masterStyle) && slide.status !== 'error') {
       const ms = slide.masterStyle!;
       if (!ms) return null; // Fallback if data missing
 
       return (
-          <div className="w-full aspect-[16/9] relative shadow-2xl overflow-hidden flex flex-col p-8"
+          <div className={`w-full ${aspectClass} relative shadow-2xl overflow-hidden flex flex-col p-8`}
                style={{ backgroundColor: ms.backgroundColor, color: ms.colorPalette.primary }}>
               
               {/* Header */}
@@ -186,7 +190,7 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
   // IF IMAGE EXISTS: Render the full slide image
   if (slide.imageBase64 && slide.status !== 'error') {
       return (
-        <div className="w-full aspect-[16/9] relative group shadow-2xl bg-white border border-gray-200 overflow-hidden">
+        <div className={`w-full ${aspectClass} relative group shadow-2xl bg-white border border-gray-200 overflow-hidden`}>
             {/* 4K Badge */}
             {slide.isHighRes && (
                 <div className="absolute top-0 left-0 text-white text-[10px] font-bold px-2 py-1 rounded-br z-10 shadow-md flex items-center gap-1"
@@ -258,7 +262,7 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
   // IF NO IMAGE (BLUEPRINT MODE): Render the text layout with loading overlays
   return (
     <div 
-        className="aspect-[16/9] w-full bg-white p-10 flex flex-col shadow-2xl border border-gray-200 relative overflow-hidden font-sans"
+        className={`${aspectClass} w-full bg-white p-10 flex flex-col shadow-2xl border border-gray-200 relative overflow-hidden font-sans`}
         style={{ color: colors.text }}
     >
       

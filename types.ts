@@ -12,6 +12,15 @@ export enum SlideType {
 }
 
 export type ConsultingStyle = 'mckinsey' | 'bcg' | 'bain' | 'internet' | 'custom';
+export type AspectRatio = '16:9' | '4:3';
+
+export interface CustomPalette {
+  primary: string;
+  secondary: string;
+  background: string;
+  text: string;
+  accents: string[];
+}
 
 export interface TypographySpec {
   fontFamily: string;

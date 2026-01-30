@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { SlideData, GenerationState, OutlineItem, ConsultingStyle, SlideType, MasterStyleConfig, LayoutRecommendation } from './types';
+import { SlideData, GenerationState, OutlineItem, ConsultingStyle, SlideType, MasterStyleConfig, LayoutRecommendation, CustomPalette, AspectRatio } from './types';
 import { 
     generateOutline, 
     generateSlideContent, 
@@ -38,12 +38,13 @@ const App: React.FC = () => {
   const [deckPurpose, setDeckPurpose] = useState('');
   const [filesData, setFilesData] = useState<{ name: string; base64: string; mimeType: string; size: number }[]>([]);
   const [consultingStyle, setConsultingStyle] = useState<ConsultingStyle>('mckinsey');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9'); // NEW: Aspect Ratio State
   
   // Custom Style State
   const [showCustomStyleModal, setShowCustomStyleModal] = useState(false);
   const [customStyleDescription, setCustomStyleDescription] = useState('');
   const [customStyleFile, setCustomStyleFile] = useState<{ base64: string, mimeType: string } | null>(null);
-  const [customStylePrompts, setCustomStylePrompts] = useState<{ core: string, visual: string } | undefined>(undefined);
+  const [customStylePrompts, setCustomStylePrompts] = useState<{ core: string, visual: string, palette?: CustomPalette } | undefined>(undefined);
   const [isExtractingStyle, setIsExtractingStyle] = useState(false);
 
   const [status, setStatus] = useState<GenerationState>({ stage: 'idle' });
@@ -198,6 +199,9 @@ const App: React.FC = () => {
           // Logic: If bodyContent is empty, retry whole slide. If bodyContent exists but no image, retry visual.
           
           const needsFullRegen = !currentSlide.bodyContent || currentSlide.bodyContent.length === 0;
+
+          // Find Master Style
+          const masterStyle = slides.find(s => s.slideType === SlideType.MasterStyleGuide || s.masterStyle)?.masterStyle;
   
           // Prepare input for regeneration
           const input: AnalysisInput = {};
@@ -222,7 +226,10 @@ const App: React.FC = () => {
                       keyPoints: updatedSlidePending.bodyContent
                   };
   
-                  const visual = await generateSlideVisual(input, slideContext, updatedSlidePending.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '4K', undefined, customStylePrompts);
+          // 3. Render Image
+          const visual = await generateSlideVisual(input, slideContext, updatedSlidePending.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '4K', undefined, customStylePrompts, undefined, aspectRatio, masterStyle);
+          
+          const newHistory = [...history, "Regenerated with same parameters."];
   
                   setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true } : s));
                } catch (e) {
@@ -242,15 +249,58 @@ const App: React.FC = () => {
                       keyPoints: currentSlide.bodyContent
                   };
   
-                  const visual = await generateSlideVisual(input, slideContext, currentSlide.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '4K', undefined, customStylePrompts);
-  
-                  setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true } : s));
+          // 3. Render Image with SAME prompt
+          const visual = await generateSlideVisual(input, slideContext, currentSlide.visualSpecification.fullImagePrompt, consultingStyle, apiKey, '4K', undefined, customStylePrompts, undefined, aspectRatio, masterStyle);
+          
+          updateSlideWithHistory(currentSlideIdx, { imageBase64: visual, status: 'complete' });
                           } catch(e) {
                               setSlides(prev => prev.map((s, i) => i === currentSlideIdx ? { ...s, status: 'error', subtitle: 'Visual Retry Failed' } : s));
                           }
                       }
                   };
               
+  const handleRegenerateVisual = async () => {
+      const currentSlide = slides[currentSlideIdx];
+      if (!currentSlide) return;
+
+      updateSlideStatus(currentSlideIdx, { status: 'generating_visual', currentStep: 'Refreshing Visuals...' });
+
+      try {
+          const input: AnalysisInput = {};
+          if (filesData.length > 0) input.filesData = filesData.map(f => ({ mimeType: f.mimeType, base64: f.base64 }));
+          if (deckPurpose.trim()) input.text = `PURPOSE: ${deckPurpose}\n\n`;
+
+          const slideContext = {
+              title: currentSlide.actionTitle,
+              subtitle: currentSlide.subtitle || "",
+              keyPoints: currentSlide.bodyContent
+          };
+
+          // Find Master Style
+          const masterStyle = slidesRef.current.find(s => s.slideType === SlideType.MasterStyleGuide || s.masterStyle)?.masterStyle;
+
+          const visual = await generateSlideVisual(
+              input, 
+              slideContext, 
+              currentSlide.visualSpecification.fullImagePrompt, 
+              consultingStyle, 
+              apiKey, 
+              '4K', 
+              undefined, 
+              customStylePrompts, 
+              undefined, 
+              aspectRatio, 
+              masterStyle
+          );
+          
+          updateSlideStatus(currentSlideIdx, { imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true });
+
+      } catch (e) {
+          alert("Regenerate Visual failed: " + (e as Error).message);
+          updateSlideStatus(currentSlideIdx, { status: 'complete', currentStep: undefined });
+      }
+  };
+
                 // --- Handlers ---
                 const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {    const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -337,7 +387,7 @@ const App: React.FC = () => {
           setCustomStylePrompts(result);
           setConsultingStyle('custom');
           setShowCustomStyleModal(false);
-          startOutlineAnalysis(true); // Proceed to analysis immediately
+          startOutlineAnalysis(true, 'custom'); // Proceed to analysis immediately with explicit style
 
       } catch (e) {
           alert("Failed to analyze custom style: " + (e as Error).message);
@@ -408,11 +458,13 @@ const App: React.FC = () => {
       setFilesData(prev => prev.filter((_, i) => i !== index));
   };
 
-  const startOutlineAnalysis = async (skipValidation = false) => {
+  const startOutlineAnalysis = async (skipValidation = false, styleOverride?: ConsultingStyle) => {
     if (!skipValidation) {
         if (!isValidApiKey(apiKey)) { alert("Valid API Key required."); return; }
         if (filesData.length === 0 && !deckPurpose.trim() && !textContent.trim()) return;
     }
+
+    const effectiveStyle = styleOverride || consultingStyle;
 
     setView('analyzing');
     setStatus({ stage: 'analyzing-outline' });
@@ -456,7 +508,7 @@ const App: React.FC = () => {
       }, 4000); 
 
       // Pass customPrompts if style is custom
-      const generatedOutline = await generateOutline(input, consultingStyle, apiKey, customStylePrompts);
+      const generatedOutline = await generateOutline(input, effectiveStyle, apiKey, customStylePrompts);
       
       clearTimeout(scqaTimer);
       updateTaskStatus('parse', 'done');
@@ -577,6 +629,9 @@ const App: React.FC = () => {
 
         const lightPrompt = updatedSlidePending.visualSpecification.fullImagePrompt;
         
+        // Find Master Style
+        const masterStyle = slides.find(s => s.slideType === SlideType.MasterStyleGuide || s.masterStyle)?.masterStyle;
+
         // Construct Context for Visual
         const slideContext = {
             title: updatedSlidePending.actionTitle,
@@ -595,7 +650,9 @@ const App: React.FC = () => {
             '4K', 
             undefined, 
             customStylePrompts,
-            visualRefineImage?.base64 // <--- PASS REF IMAGE
+            visualRefineImage?.base64, // <--- PASS REF IMAGE
+            aspectRatio, // <--- PASS ASPECT RATIO
+            masterStyle // <--- PASS MASTER STYLE
         );
         
         updateSlideStatus(currentSlideIdx, { imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true });
@@ -688,6 +745,9 @@ const App: React.FC = () => {
                   keyPoints: newContent.bodyContent
               };
 
+              // Find Master Style
+              const masterStyle = slidesRef.current.find(s => s.slideType === SlideType.MasterStyleGuide || s.masterStyle)?.masterStyle;
+
               const visual = await generateSlideVisual(
                   input, 
                   slideContext, 
@@ -696,7 +756,10 @@ const App: React.FC = () => {
                   apiKey, 
                   '4K', 
                   undefined, 
-                  customStylePrompts
+                  customStylePrompts,
+                  undefined,
+                  aspectRatio,
+                  masterStyle
               );
               
               updateSlideStatus(currentSlideIdx, { 
@@ -835,7 +898,7 @@ const App: React.FC = () => {
           try {
               // 1. Structural Blueprint (Text Generation)
               updateSlideStatus(i, { currentStep: 'Drafting Content...' });
-              const slideContent = await generateSlideContent(input, item, previousSlidesContext, consultingStyle, apiKey, instructions, customStylePrompts, activeMasterStyle);
+              const slideContent = await generateSlideContent(input, item, previousSlidesContext, consultingStyle, apiKey, instructions, customStylePrompts, activeMasterStyle, aspectRatio);
               
               if (slideContent.masterStyle) {
                   activeMasterStyle = slideContent.masterStyle;
@@ -888,7 +951,7 @@ const App: React.FC = () => {
               };
 
               // Standard Nanobanana Pro
-              const visual = await generateSlideVisual(input, slideContext, lightPrompt, consultingStyle, apiKey, '4K', instructions, customStylePrompts); 
+              const visual = await generateSlideVisual(input, slideContext, lightPrompt, consultingStyle, apiKey, '4K', instructions, customStylePrompts, undefined, aspectRatio, activeMasterStyle); 
               
               updateSlideStatus(i, { imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true });
           } catch (e) {
@@ -1088,10 +1151,15 @@ const App: React.FC = () => {
       setShowExportModal(false);
 
       try {
+          // Dynamic Layout Dimensions
+          const isWide = aspectRatio === '16:9';
+          const width = isWide ? 1920 : 1440; // 1440x1080 is standard 4:3 HD
+          const height = 1080;
+
           const doc = new jsPDF({
               orientation: 'landscape',
               unit: 'px',
-              format: [1920, 1080],
+              format: [width, height],
               hotfixes: ["px_scaling"]
           });
 
@@ -1105,17 +1173,17 @@ const App: React.FC = () => {
 
           for (let i = 0; i < exportSlides.length; i++) {
               const slide = exportSlides[i];
-              if (i > 0) doc.addPage();
+              if (i > 0) doc.addPage([width, height]);
               
               if (slide.imageBase64) {
                   let finalImage = slide.imageBase64;
                   
                   if (mode === 'compressed') {
                       // Compress Image on the fly
-                      finalImage = await compressImage(slide.imageBase64);
+                      finalImage = await compressImage(slide.imageBase64, width * 2); // Compress relative to width
                   }
 
-                  doc.addImage(finalImage, 'PNG', 0, 0, 1920, 1080, '', 'FAST');
+                  doc.addImage(finalImage, 'PNG', 0, 0, width, height, '', 'FAST');
               } else {
                   doc.text(slide.actionTitle || "Untitled", 100, 200);
               }
@@ -1190,7 +1258,10 @@ const App: React.FC = () => {
               apiKey, 
               '4K', 
               styleInstruction, // Pass enforcement as global instruction
-              customStylePrompts
+              customStylePrompts,
+              undefined,
+              aspectRatio,
+              masterConfig // <--- PASS MASTER CONFIG
           );
           
           updateSlideStatus(currentSlideIdx, { 
@@ -1332,6 +1403,25 @@ const App: React.FC = () => {
                             ))}
                         </div>
                     )}
+
+                    {/* ASPECT RATIO SELECTOR */}
+                    <div className="mb-4 flex items-center justify-between bg-gray-50 border border-gray-200 p-2">
+                        <span className="text-xs font-bold text-gray-500 uppercase tracking-widest pl-2">Format:</span>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setAspectRatio('16:9')}
+                                className={`px-3 py-1 text-xs font-bold uppercase tracking-wider transition-colors ${aspectRatio === '16:9' ? 'bg-[#051C2C] text-white' : 'bg-white text-gray-400 hover:bg-gray-100'}`}
+                            >
+                                16:9
+                            </button>
+                            <button 
+                                onClick={() => setAspectRatio('4:3')}
+                                className={`px-3 py-1 text-xs font-bold uppercase tracking-wider transition-colors ${aspectRatio === '4:3' ? 'bg-[#051C2C] text-white' : 'bg-white text-gray-400 hover:bg-gray-100'}`}
+                            >
+                                4:3
+                            </button>
+                        </div>
+                    </div>
 
                     <button 
                         onClick={() => setView('style-selection')}
@@ -1946,7 +2036,7 @@ const App: React.FC = () => {
 
                         {/* PAUSED STATE OVERLAY FOR PENDING SLIDES */}
                         {status.stage === 'paused' && (slides[currentSlideIdx]?.status === 'pending' || slides[currentSlideIdx]?.status === 'generating_text' || slides[currentSlideIdx]?.status === 'generating_visual') ? (
-                             <div className="w-full aspect-[16/9] shadow-2xl bg-white border border-gray-200 flex flex-col relative animate-in fade-in zoom-in-95 duration-300">
+                             <div className={`w-full ${aspectRatio === '16:9' ? 'aspect-[16/9]' : 'aspect-[4/3]'} shadow-2xl bg-white border border-gray-200 flex flex-col relative animate-in fade-in zoom-in-95 duration-300`}>
                                  <div className="absolute inset-0 bg-amber-50/50 backdrop-blur-[2px] z-10"></div>
                                  <div className="z-20 absolute inset-0 flex flex-col items-center justify-center p-12 text-center">
                                      <div className="bg-white p-8 shadow-2xl border-t-8 border-amber-400 max-w-xl w-full">
@@ -1983,16 +2073,17 @@ const App: React.FC = () => {
                              </div>
                         ) : (
                             /* STANDARD SLIDE VIEW */
-                            <div className="w-full aspect-[16/9] shadow-2xl bg-white relative flex flex-col transition-all duration-500">
+                            <div className={`w-full ${aspectRatio === '16:9' ? 'aspect-[16/9]' : 'aspect-[4/3]'} shadow-2xl bg-white relative flex flex-col transition-all duration-500`}>
                                 {slides[currentSlideIdx] && slides[currentSlideIdx].status !== 'pending' ? (
                                     <SlideView 
                                         slide={slides[currentSlideIdx]} 
                                         style={consultingStyle} 
-                                        onRegenerateImage={handleFinalSlideRefine}
+                                        onRegenerateImage={handleRegenerateVisual}
                                         onRetry={handleRetrySlide}
                                         onEnforceStyle={handleEnforceMasterStyle}
                                         onSmartLayout={handleSmartLayoutRecommendation}
                                         isRecommendingLayout={isRecommendingLayout}
+                                        aspectRatio={aspectRatio}
                                     />
                                 ) : (
                                     <div className="flex-1 flex flex-col items-center justify-center gap-8 p-12 text-center bg-white">
