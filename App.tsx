@@ -820,11 +820,15 @@ const App: React.FC = () => {
           return;
       }
       setIsRefiningSlide(true);
-      updateSlideWithHistory(currentSlideIdx, {}, true); 
+      // SNAPSHOT BEFORE MODIFY
+      updateSlideWithHistory(currentSlideIdx, { 
+          status: 'generating_visual', 
+          currentStep: 'Performing Visual Edit...' 
+      }, true); // forceSnapshot = true
       
       try {
           const currentSlide = slides[currentSlideIdx];
-          updateSlideStatus(currentSlideIdx, { status: 'generating_visual', currentStep: 'Performing Visual Edit...' });
+          // updateSlideStatus(currentSlideIdx, { status: 'generating_visual', currentStep: 'Performing Visual Edit...' }); // Replaced by updateSlideWithHistory above
 
           const newImage = await modifySlideImage(
               currentSlide.imageBase64!, 
