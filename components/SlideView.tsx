@@ -1,7 +1,7 @@
 
 import React from 'react';
 import { SlideData, ConsultingStyle, SlideType, AspectRatio } from '../types';
-import { Loader2, AlertCircle, Sparkles, Monitor, Palette, FileText, Type, LayoutDashboard } from 'lucide-react';
+import { Loader2, AlertCircle, Sparkles, Monitor, Palette, FileText, Type, LayoutDashboard, RotateCcw, RotateCw } from 'lucide-react';
 
 interface SlideViewProps {
   slide: SlideData;
@@ -12,9 +12,13 @@ interface SlideViewProps {
   onSmartLayout?: () => void; // NEW: Callback for Smart Layout Recommendations
   isRecommendingLayout?: boolean; // NEW: Loading state for layout recommendation
   aspectRatio: AspectRatio; // NEW: Dynamic Aspect Ratio
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
-const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry, onEnforceStyle, onSmartLayout, isRecommendingLayout, aspectRatio }) => {
+const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, onRetry, onEnforceStyle, onSmartLayout, isRecommendingLayout, aspectRatio, onUndo, onRedo, canUndo, canRedo }) => {
   // Define style-specific colors
   const getColors = () => {
       switch (style) {
@@ -244,14 +248,41 @@ const SlideView: React.FC<SlideViewProps> = ({ slide, style, onRegenerateImage, 
                     )}
 
                     {onRegenerateImage && (
-                        <button 
-                            onClick={onRegenerateImage}
-                            className="bg-white/90 hover:bg-white px-4 py-2 rounded shadow-lg border border-gray-200 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
-                            style={{ color: colors.text }}
-                        >
-                            <Sparkles className="w-3 h-3" />
-                            Regenerate Visual
-                        </button>
+                        <div className="flex items-center gap-2">
+                             {(onUndo || onRedo) && (
+                                <div className="flex bg-white/90 rounded shadow-lg border border-gray-200 overflow-hidden">
+                                    {onUndo && (
+                                        <button
+                                            onClick={onUndo}
+                                            disabled={!canUndo}
+                                            className={`p-2 hover:bg-gray-50 border-r border-gray-200 transition-colors ${!canUndo ? 'opacity-30 cursor-not-allowed' : 'opacity-80 hover:opacity-100'}`}
+                                            title="Undo Visual Change"
+                                        >
+                                            <RotateCcw className="w-3 h-3 text-gray-700" />
+                                        </button>
+                                    )}
+                                    {onRedo && (
+                                        <button
+                                            onClick={onRedo}
+                                            disabled={!canRedo}
+                                            className={`p-2 hover:bg-gray-50 transition-colors ${!canRedo ? 'opacity-30 cursor-not-allowed' : 'opacity-80 hover:opacity-100'}`}
+                                            title="Redo Visual Change"
+                                        >
+                                            <RotateCw className="w-3 h-3 text-gray-700" />
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+
+                            <button 
+                                onClick={onRegenerateImage}
+                                className="bg-white/90 hover:bg-white px-4 py-2 rounded shadow-lg border border-gray-200 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 transition-colors"
+                                style={{ color: colors.text }}
+                            >
+                                <Sparkles className="w-3 h-3" />
+                                Regenerate Visual
+                            </button>
+                        </div>
                     )}
                 </div>
             )}

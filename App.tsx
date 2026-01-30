@@ -152,23 +152,27 @@ const App: React.FC = () => {
             (resolvedNewData.imageBase64 && resolvedNewData.imageBase64 !== s.imageBase64);
           
           let newHistory = s.history;
+          let newFuture = s.future;
 
           if (isContentChange || forceSnapshot) {
               const stableStatus = s.status.startsWith('generating') || s.status === 'upscaling' ? 'complete' : s.status;
 
-              const snapshot: Omit<SlideData, 'history'> = { 
+              const snapshot: Omit<SlideData, 'history' | 'future'> = { 
                   ...s, 
                   status: stableStatus,
-                  history: undefined 
+                  history: undefined,
+                  future: undefined
               };
               
               newHistory = [...(s.history || []).slice(-9), snapshot];
+              newFuture = [];
           }
 
           return {
               ...s,
               ...resolvedNewData,
-              history: newHistory
+              history: newHistory,
+              future: newFuture
           };
       }));
   };
@@ -189,8 +193,40 @@ const App: React.FC = () => {
       const previousVersion = currentSlide.history[currentSlide.history.length - 1];
       const newHistory = currentSlide.history.slice(0, -1);
       
+      // Save current state to Future
+      const stableStatus = currentSlide.status.startsWith('generating') || currentSlide.status === 'upscaling' ? 'complete' : currentSlide.status;
+      const currentSnapshot: Omit<SlideData, 'history' | 'future'> = {
+          ...currentSlide,
+          status: stableStatus,
+          history: undefined,
+          future: undefined
+      };
+      const newFuture = [currentSnapshot, ...(currentSlide.future || []).slice(0, 9)];
+
       setSlides(prev => prev.map((s, i) => 
-          i === currentSlideIdx ? { ...previousVersion, history: newHistory } : s
+          i === currentSlideIdx ? { ...previousVersion, history: newHistory, future: newFuture } : s
+      ));
+  };
+
+  const handleRedoSlide = () => {
+      const currentSlide = slides[currentSlideIdx];
+      if (!currentSlide.future || currentSlide.future.length === 0) return;
+      
+      const nextVersion = currentSlide.future[0];
+      const newFuture = currentSlide.future.slice(1);
+
+      // Save current state to History
+      const stableStatus = currentSlide.status.startsWith('generating') || currentSlide.status === 'upscaling' ? 'complete' : currentSlide.status;
+      const currentSnapshot: Omit<SlideData, 'history' | 'future'> = {
+          ...currentSlide,
+          status: stableStatus,
+          history: undefined,
+          future: undefined
+      };
+      const newHistory = [...(currentSlide.history || []).slice(-9), currentSnapshot];
+      
+      setSlides(prev => prev.map((s, i) => 
+          i === currentSlideIdx ? { ...nextVersion, history: newHistory, future: newFuture } : s
       ));
   };
 
@@ -293,7 +329,7 @@ const App: React.FC = () => {
               masterStyle
           );
           
-          updateSlideStatus(currentSlideIdx, { imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true });
+          updateSlideWithHistory(currentSlideIdx, { imageBase64: visual, status: 'complete', currentStep: undefined, isHighRes: true });
 
       } catch (e) {
           alert("Regenerate Visual failed: " + (e as Error).message);
@@ -2084,6 +2120,10 @@ const App: React.FC = () => {
                                         onSmartLayout={handleSmartLayoutRecommendation}
                                         isRecommendingLayout={isRecommendingLayout}
                                         aspectRatio={aspectRatio}
+                                        onUndo={handleUndoSlide}
+                                        onRedo={handleRedoSlide}
+                                        canUndo={!!(slides[currentSlideIdx]?.history && slides[currentSlideIdx].history!.length > 0)}
+                                        canRedo={!!(slides[currentSlideIdx]?.future && slides[currentSlideIdx].future!.length > 0)}
                                     />
                                 ) : (
                                     <div className="flex-1 flex flex-col items-center justify-center gap-8 p-12 text-center bg-white">

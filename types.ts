@@ -85,6 +85,7 @@ export interface SlideData {
   currentStep?: string; // Granular status message (e.g. "Analyzing...", "Rendering...")
   dataPoints?: string[];
   history?: Omit<SlideData, 'history'>[];
+  future?: Omit<SlideData, 'history'>[];
 }
 
 export interface SlideElement {
